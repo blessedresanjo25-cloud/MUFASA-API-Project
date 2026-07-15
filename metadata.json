@@ -1,0 +1,6 @@
+{
+  "name": "MUFASA API Security Suite",
+  "description": "Centralized web-based security management suite for detecting, monitoring, and preventing fraudulent login attempts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

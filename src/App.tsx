@@ -52,6 +52,7 @@ import {
   Calendar, 
   ChevronRight,
   Eye,
+  EyeOff,
   AlertCircle,
   HelpCircle,
   TrendingUp,
@@ -88,9 +89,15 @@ export default function App() {
   // Forms state
   const [newUsername, setNewUsername] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserRole, setNewUserRole] = useState<'Administrator' | 'User'>('User');
   const [userFormError, setUserFormError] = useState('');
   const [userFormSuccess, setUserFormSuccess] = useState('');
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+  const [resetModalUserId, setResetModalUserId] = useState<string | null>(null);
+  const [resetModalPassword, setResetModalPassword] = useState('');
+  const [resetModalSuccess, setResetModalSuccess] = useState('');
+  const [resetModalError, setResetModalError] = useState('');
 
   const [manualIpAddress, setManualIpAddress] = useState('');
   const [manualIpReason, setManualIpReason] = useState('');
@@ -308,7 +315,8 @@ export default function App() {
         body: JSON.stringify({
           username: newUsername,
           email: newUserEmail,
-          role: newUserRole
+          role: newUserRole,
+          password: newUserPassword
         })
       });
 
@@ -319,6 +327,7 @@ export default function App() {
         setUserFormSuccess(`User ${newUsername} successfully created under role ${newUserRole}.`);
         setNewUsername('');
         setNewUserEmail('');
+        setNewUserPassword('');
         await refreshAllData();
       }
     } catch (err) {
@@ -345,18 +354,40 @@ export default function App() {
     }
   };
 
-  // Action: Reset User Password (simulated)
-  const handleResetPassword = async (userId: string) => {
+  // Action: Open Reset/Update User Passcode Modal
+  const handleResetPassword = (userId: string) => {
+    setResetModalUserId(userId);
+    setResetModalPassword('');
+    setResetModalSuccess('');
+    setResetModalError('');
+  };
+
+  // Action: Submit updated passcode
+  const handleSubmitResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetModalUserId) return;
+    if (!resetModalPassword.trim()) {
+      setResetModalError('Please enter a valid passcode.');
+      return;
+    }
+
     try {
       const res = await fetch('/api/users/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId })
+        body: JSON.stringify({ userId: resetModalUserId, newPassword: resetModalPassword.trim() })
       });
       const d = await res.json();
-      alert(d.message);
+      if (res.ok) {
+        setResetModalSuccess(d.message);
+        setResetModalError('');
+        await refreshAllData();
+      } else {
+        setResetModalError(d.error || 'Failed to update passcode.');
+      }
     } catch (err) {
       console.error('Error resetting password:', err);
+      setResetModalError('An error occurred. Please try again.');
     }
   };
 
@@ -1638,6 +1669,18 @@ export default function App() {
                     </select>
                   </div>
 
+                  <div>
+                    <label className="block text-slate-400 text-xs font-medium mb-1" htmlFor="reg-password">System Passcode / Password</label>
+                    <input 
+                      id="reg-password"
+                      type="password"
+                      placeholder="Enter a custom password (or empty for 'user123')"
+                      value={newUserPassword}
+                      onChange={(e) => setNewUserPassword(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
                   {userFormError && <p className="text-[11px] text-red-400 font-medium">{userFormError}</p>}
                   {userFormSuccess && <p className="text-[11px] text-emerald-400 font-medium">{userFormSuccess}</p>}
 
@@ -1663,6 +1706,7 @@ export default function App() {
                         <th className="pb-2.5">User Identity</th>
                         <th className="pb-2.5">Email Address</th>
                         <th className="pb-2.5">Role</th>
+                        <th className="pb-2.5">Passcode</th>
                         <th className="pb-2.5">Last Login (UTC)</th>
                         <th className="pb-2.5">Identity Status</th>
                         <th className="pb-2.5 text-right">Actions</th>
@@ -1679,6 +1723,22 @@ export default function App() {
                             }`}>
                               {u.role}
                             </span>
+                          </td>
+                          <td className="py-3.5 font-mono text-slate-400">
+                            <div className="flex items-center gap-1.5">
+                              <span className="min-w-[65px] inline-block font-medium">
+                                {visiblePasswords[u.id] 
+                                  ? (u.password || (u.username === 'admin' ? 'admin123' : u.username === 'analyst_sarah' ? 'sarah123' : 'user123')) 
+                                  : '••••••••'}
+                              </span>
+                              <button 
+                                onClick={() => setVisiblePasswords(prev => ({ ...prev, [u.id]: !prev[u.id] }))}
+                                className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-slate-300 transition-colors focus:outline-none"
+                                title={visiblePasswords[u.id] ? "Hide passcode" : "Reveal passcode"}
+                              >
+                                {visiblePasswords[u.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
                           </td>
                           <td className="py-3.5 font-mono text-slate-400">
                             {u.lastLogin ? new Date(u.lastLogin).toLocaleTimeString() : 'Never logged'}
@@ -1921,6 +1981,75 @@ export default function App() {
                     </motion.div>
                   </div>
                 )}
+              </AnimatePresence>
+
+              {/* CUSTOM PASSWORD RESET MODAL */}
+              <AnimatePresence>
+                {resetModalUserId !== null && (() => {
+                  const targetUser = usersList.find(u => u.id === resetModalUserId);
+                  if (!targetUser) return null;
+                  return (
+                    <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4">
+                      <motion.div 
+                        initial={{ scale: 0.95, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0.95, opacity: 0 }}
+                        className="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl relative"
+                      >
+                        <button 
+                          onClick={() => setResetModalUserId(null)}
+                          className="absolute top-4 right-4 text-slate-400 hover:text-white"
+                          type="button"
+                        >
+                          <XCircle className="w-5 h-5" />
+                        </button>
+
+                        <h3 className="text-sm font-bold text-white flex items-center gap-2 pb-3 border-b border-slate-800">
+                          <Key className="w-4 h-4 text-emerald-400" />
+                          Set Operator Passcode
+                        </h3>
+
+                        <p className="text-xs text-slate-400 mt-3">
+                          You are setting a custom passcode/password for operator <strong className="text-white">@{targetUser.username}</strong>.
+                        </p>
+
+                        <form onSubmit={handleSubmitResetPassword} className="space-y-4 mt-4">
+                          <div>
+                            <label className="block text-slate-400 text-[11px] font-medium mb-1" htmlFor="modal-new-password">New Passcode</label>
+                            <input 
+                              id="modal-new-password"
+                              type="password"
+                              placeholder="Enter new desired passcode"
+                              value={resetModalPassword}
+                              onChange={(e) => setResetModalPassword(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500"
+                              autoFocus
+                            />
+                          </div>
+
+                          {resetModalError && <p className="text-[11px] text-red-400 font-medium">{resetModalError}</p>}
+                          {resetModalSuccess && <p className="text-[11px] text-emerald-400 font-medium">{resetModalSuccess}</p>}
+
+                          <div className="flex gap-2 pt-2">
+                            <button
+                              type="button"
+                              onClick={() => setResetModalUserId(null)}
+                              className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 rounded-xl text-xs transition"
+                            >
+                              Close
+                            </button>
+                            <button
+                              type="submit"
+                              className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 rounded-xl text-xs shadow-md transition"
+                            >
+                              Save Passcode
+                            </button>
+                          </div>
+                        </form>
+                      </motion.div>
+                    </div>
+                  );
+                })()}
               </AnimatePresence>
             </div>
           )}

@@ -18,6 +18,14 @@ import {
   SystemSettings, 
   SecurityStats 
 } from './src/types';
+import {
+  initFirebase,
+  isFirebaseEnabled,
+  getCollectionData,
+  getDocumentData,
+  saveDocument,
+  syncCollection
+} from './src/firebase_db';
 
 const app = express();
 const PORT = 3000;
@@ -64,7 +72,7 @@ function getGeminiClient(): GoogleGenAI | null {
   return aiClient;
 }
 
-// Helper to save state to disk
+// Helper to save state to disk & Firestore
 function saveDatabase() {
   try {
     const data = {
@@ -76,14 +84,76 @@ function saveDatabase() {
       reports,
       systemSettings
     };
+    // Always backup to local disk
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+    
+    // If Firebase is enabled, sync to Firestore asynchronously
+    if (isFirebaseEnabled()) {
+      Promise.all([
+        syncCollection('users', users),
+        syncCollection('loginLogs', loginLogs),
+        syncCollection('attackLogs', attackLogs),
+        syncCollection('blockedIPs', blockedIPs),
+        syncCollection('alerts', alerts),
+        syncCollection('reports', reports),
+        saveDocument('settings', 'systemSettings', systemSettings)
+      ]).then(() => {
+        console.log('Database changes successfully synchronized with Firebase Firestore.');
+      }).catch(err => {
+        console.error('Error synchronizing changes with Firebase Firestore:', err);
+      });
+    }
   } catch (err) {
     console.error('Error saving database:', err);
   }
 }
 
 // Helper to load or seed state
-function loadDatabase() {
+async function loadDatabase() {
+  const firebaseSuccess = initFirebase();
+  if (firebaseSuccess && isFirebaseEnabled()) {
+    try {
+      console.log('Attempting to load database from Firebase Firestore...');
+      // 1. Load users
+      const dbUsers = await getCollectionData<User>('users');
+      // 2. Load system settings
+      const dbSettings = await getDocumentData<SystemSettings>('settings', 'systemSettings');
+      
+      if (dbUsers.length > 0) {
+        users = dbUsers;
+        console.log(`Loaded ${users.length} users from Firestore.`);
+      } else {
+        // Seeding database if users is empty (meaning Firestore is empty)
+        await seedDatabase();
+        return;
+      }
+
+      if (dbSettings) {
+        systemSettings = dbSettings;
+        console.log('Loaded system settings from Firestore.');
+      }
+
+      // Load logs and other arrays
+      loginLogs = await getCollectionData<LoginLog>('loginLogs');
+      attackLogs = await getCollectionData<AttackLog>('attackLogs');
+      blockedIPs = await getCollectionData<BlockedIP>('blockedIPs');
+      alerts = await getCollectionData<Alert>('alerts');
+      reports = await getCollectionData<Report>('reports');
+
+      // Sort logs by timestamp/date where appropriate
+      loginLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      attackLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      alerts.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      reports.sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime());
+
+      console.log('Loaded all database tables from Firestore successfully.');
+      return;
+    } catch (err) {
+      console.error('Error loading database from Firestore, falling back to local disk:', err);
+    }
+  }
+
+  // Fallback to local file system
   if (fs.existsSync(DB_FILE)) {
     try {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
@@ -101,11 +171,11 @@ function loadDatabase() {
       console.error('Error parsing database file, seeding instead:', err);
     }
   }
-  seedDatabase();
+  await seedDatabase();
 }
 
 // Generate realistic seeding logs over the last 7 days
-function seedDatabase() {
+async function seedDatabase() {
   console.log('Seeding new database...');
   
   // Seed Users
@@ -316,7 +386,7 @@ function seedDatabase() {
   saveDatabase();
 }
 
-loadDatabase();
+// Database is loaded inside startServer() below
 
 // ==========================================
 // SECURITY MONITORING ALGORITHMS & HELPERS
@@ -698,7 +768,7 @@ app.get('/api/users', (req, res) => {
 
 // POST create/invite user
 app.post('/api/users', (req, res) => {
-  const { username, email, role } = req.body;
+  const { username, email, role, password } = req.body;
   if (!username || !email || !role) {
     return res.status(400).json({ error: 'All fields are required' });
   }
@@ -717,6 +787,10 @@ app.post('/api/users', (req, res) => {
     createdAt: new Date().toISOString(),
     lastLogin: null
   };
+
+  if (password && password.trim() !== '') {
+    newUser.password = password.trim();
+  }
 
   users.push(newUser);
   saveDatabase();
@@ -743,12 +817,19 @@ app.post('/api/users/toggle-status', (req, res) => {
   res.json({ message: 'Status updated successfully', user });
 });
 
-// POST to reset user password (simulated)
+// POST to reset/update user password
 app.post('/api/users/reset-password', (req, res) => {
-  const { userId } = req.body;
+  const { userId, newPassword } = req.body;
   const user = users.find(u => u.id === userId);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
+  }
+
+  if (newPassword && newPassword.trim() !== '') {
+    user.password = newPassword.trim();
+    saveDatabase();
+    triggerAlert('User Password Updated', `Operator passcode for "${user.username}" was updated successfully.`, 'Low');
+    return res.json({ message: `Passcode for "${user.username}" was updated to "${newPassword.trim()}" successfully.` });
   }
 
   triggerAlert('Security Password Reset Triggered', `A password reset ticket was generated for "${user.username}".`, 'Low');
@@ -1209,9 +1290,14 @@ app.post('/api/auth/login', (req, res) => {
 
   // Authenticate simple password check
   // For standard demonstration, passwords are: admin -> admin123, other accounts -> user123
-  const isCorrectPassword = (username === 'admin' && password === 'admin123') || 
-                            (username === 'analyst_sarah' && password === 'sarah123') ||
-                            (username !== 'admin' && username !== 'analyst_sarah' && password === 'user123');
+  let isCorrectPassword = false;
+  if (user.password && user.password.trim() !== '') {
+    isCorrectPassword = password === user.password;
+  } else {
+    isCorrectPassword = (username === 'admin' && password === 'admin123') || 
+                        (username === 'analyst_sarah' && password === 'sarah123') ||
+                        (username !== 'admin' && username !== 'analyst_sarah' && password === 'user123');
+  }
 
   if (!isCorrectPassword) {
     // Record failure
@@ -1291,6 +1377,9 @@ app.post('/api/auth/login', (req, res) => {
 // ==========================================
 
 async function startServer() {
+  // Load database from Firestore/disk before starting server
+  await loadDatabase();
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },

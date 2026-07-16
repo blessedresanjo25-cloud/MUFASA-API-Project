@@ -11,6 +11,7 @@ export interface User {
   status: 'Active' | 'Deactivated';
   createdAt: string;
   lastLogin: string | null;
+  password?: string;
 }
 
 export interface LoginLog {

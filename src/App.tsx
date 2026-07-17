@@ -481,50 +481,51 @@ export default function App() {
   // Return Login layout if not authenticated
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4 py-12 font-sans relative overflow-hidden">
-        {/* Dynamic Background Accents */}
-        <div className="absolute top-0 left-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl" />
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4 py-12 font-sans relative overflow-hidden">
+        {/* Animated Background Accents */}
+        <motion.div 
+          animate={{
+            scale: [1, 1.2, 1],
+            x: [0, 30, 0],
+            y: [0, -30, 0]
+          }}
+          transition={{
+            duration: 10,
+            repeat: Infinity,
+            repeatType: "reverse"
+          }}
+          className="absolute top-0 left-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl" 
+        />
+        <motion.div 
+          animate={{
+            scale: [1, 1.15, 1],
+            x: [0, -40, 0],
+            y: [0, 20, 0]
+          }}
+          transition={{
+            duration: 12,
+            repeat: Infinity,
+            repeatType: "reverse",
+            delay: 1
+          }}
+          className="absolute bottom-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl" 
+        />
 
-        <div className="w-full max-w-lg bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl p-8 relative z-10">
+        <motion.div 
+          initial={{ opacity: 0, y: 30, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.6, ease: "easeOut" }}
+          className="w-full max-w-md bg-slate-900/60 border border-slate-800/85 rounded-3xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.85)] p-8 backdrop-blur-xl relative z-10 hover:border-slate-800 transition-all duration-300"
+        >
           {/* Main Logo Header */}
           <div className="flex flex-col items-center justify-center text-center mb-8">
-            <div className="w-16 h-16 bg-gradient-to-tr from-emerald-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20 mb-4">
+            <div className="w-16 h-16 bg-gradient-to-tr from-emerald-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-xl shadow-emerald-500/20 mb-4">
               <Shield className="w-9 h-9 text-white" />
             </div>
             <h1 className="text-3xl font-display font-bold text-white tracking-tight">MUFASA</h1>
             <p className="text-slate-400 font-mono text-xs uppercase tracking-widest mt-1">API Security Suite</p>
             <p className="text-slate-400 text-xs mt-3 max-w-xs leading-relaxed">
               Design & Implementation of a Web-Based Security Management System for Detecting Fraudulent Logins
-            </p>
-          </div>
-
-          {/* Demonstration Shortcut Credentials Panel */}
-          <div className="bg-slate-750 border border-slate-700/60 rounded-xl p-4 mb-6">
-            <h2 className="text-slate-300 font-medium text-xs uppercase tracking-wider mb-3 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
-              Demonstration Fast Credentials
-            </h2>
-            <div className="grid grid-cols-2 gap-3">
-              <button 
-                type="button"
-                onClick={() => triggerShortcutLogin('Admin')}
-                className="py-2.5 px-3 bg-slate-700 hover:bg-slate-650 text-white rounded-lg text-xs font-medium border border-slate-650 transition duration-150 text-left flex items-center justify-between"
-              >
-                <span>🔑 Administrator</span>
-                <span className="font-mono text-[10px] text-emerald-400">admin123</span>
-              </button>
-              <button 
-                type="button"
-                onClick={() => triggerShortcutLogin('User')}
-                className="py-2.5 px-3 bg-slate-700 hover:bg-slate-650 text-white rounded-lg text-xs font-medium border border-slate-650 transition duration-150 text-left flex items-center justify-between"
-              >
-                <span>👤 Standard User</span>
-                <span className="font-mono text-[10px] text-blue-400">user123</span>
-              </button>
-            </div>
-            <p className="text-[10px] text-slate-500 mt-2 text-center">
-              *Choose a preset to fill details. Administrator unlocks full settings & simulation sandbox.
             </p>
           </div>
 
@@ -539,7 +540,7 @@ export default function App() {
                   value={loginUsername}
                   onChange={(e) => setLoginUsername(e.target.value)}
                   placeholder="Enter credential ID"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 px-4 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition duration-150"
+                  className="w-full bg-slate-950/60 border border-slate-800 rounded-xl py-3 px-4 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition duration-150"
                   required
                 />
               </div>
@@ -554,7 +555,7 @@ export default function App() {
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                   placeholder="Enter system passcode"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 px-4 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition duration-150"
+                  className="w-full bg-slate-950/60 border border-slate-800 rounded-xl py-3 px-4 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition duration-150"
                   required
                 />
               </div>
@@ -571,7 +572,7 @@ export default function App() {
               id="login-btn"
               type="submit"
               disabled={isAuthenticating}
-              className="w-full bg-gradient-to-r from-emerald-500 to-blue-600 hover:from-emerald-450 hover:to-blue-500 text-white font-medium py-3 px-4 rounded-xl shadow-lg shadow-emerald-500/15 focus:outline-none transition duration-150 flex items-center justify-center gap-2"
+              className="w-full bg-gradient-to-r from-emerald-500 to-blue-600 hover:from-emerald-450 hover:to-blue-500 text-white font-medium py-3 px-4 rounded-xl shadow-lg shadow-emerald-500/15 focus:outline-none transition duration-150 flex items-center justify-center gap-2 mt-2"
             >
               {isAuthenticating ? (
                 <>
@@ -588,11 +589,11 @@ export default function App() {
           </form>
 
           {/* Scientific Academic Footer */}
-          <div className="mt-8 pt-6 border-t border-slate-700/50 text-center">
+          <div className="mt-8 pt-6 border-t border-slate-800/80 text-center">
             <span className="text-[10px] text-slate-500 block uppercase tracking-wider font-mono">Academic Research Project</span>
             <span className="text-[10px] text-slate-500 block font-sans">Diploma in Information Technology — Securing Login Architecture</span>
           </div>
-        </div>
+        </motion.div>
       </div>
     );
   }

@@ -39,7 +39,14 @@ function getFirebaseConfig(): FirebaseConfig | null {
     try {
       const raw = fs.readFileSync(configPath, 'utf-8');
       const data = JSON.parse(raw);
-      if (data.apiKey && data.projectId) {
+      if (
+        data.apiKey && 
+        data.projectId && 
+        data.projectId.trim() !== '' && 
+        data.apiKey.trim() !== '' &&
+        !data.projectId.includes('1234') && 
+        !data.apiKey.includes('YOUR_')
+      ) {
         return {
           apiKey: data.apiKey,
           authDomain: data.authDomain,
@@ -58,7 +65,14 @@ function getFirebaseConfig(): FirebaseConfig | null {
   // 2. Try to read from environment variables
   const apiKey = process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY;
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
-  if (apiKey && projectId) {
+  if (
+    apiKey && 
+    projectId && 
+    apiKey.trim() !== '' && 
+    projectId.trim() !== '' && 
+    !apiKey.includes('YOUR_') && 
+    !projectId.includes('1234')
+  ) {
     return {
       apiKey: apiKey,
       authDomain: process.env.FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,

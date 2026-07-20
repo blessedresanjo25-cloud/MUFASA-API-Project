@@ -108,16 +108,24 @@ function saveDatabase() {
   }
 }
 
+// Promise timeout helper
+function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms))
+  ]);
+}
+
 // Helper to load or seed state
 async function loadDatabase() {
   const firebaseSuccess = initFirebase();
   if (firebaseSuccess && isFirebaseEnabled()) {
     try {
       console.log('Attempting to load database from Firebase Firestore...');
-      // 1. Load users
-      const dbUsers = await getCollectionData<User>('users');
-      // 2. Load system settings
-      const dbSettings = await getDocumentData<SystemSettings>('settings', 'systemSettings');
+      // 1. Load users with 3-second timeout
+      const dbUsers = await withTimeout(getCollectionData<User>('users'), 3000, 'Firestore users fetch timed out');
+      // 2. Load system settings with 3-second timeout
+      const dbSettings = await withTimeout(getDocumentData<SystemSettings>('settings', 'systemSettings'), 3000, 'Firestore settings fetch timed out');
       
       if (dbUsers.length > 0) {
         users = dbUsers;
@@ -133,12 +141,12 @@ async function loadDatabase() {
         console.log('Loaded system settings from Firestore.');
       }
 
-      // Load logs and other arrays
-      loginLogs = await getCollectionData<LoginLog>('loginLogs');
-      attackLogs = await getCollectionData<AttackLog>('attackLogs');
-      blockedIPs = await getCollectionData<BlockedIP>('blockedIPs');
-      alerts = await getCollectionData<Alert>('alerts');
-      reports = await getCollectionData<Report>('reports');
+      // Load logs and other arrays with timeouts
+      loginLogs = await withTimeout(getCollectionData<LoginLog>('loginLogs'), 3000, 'Firestore loginLogs fetch timed out');
+      attackLogs = await withTimeout(getCollectionData<AttackLog>('attackLogs'), 3000, 'Firestore attackLogs fetch timed out');
+      blockedIPs = await withTimeout(getCollectionData<BlockedIP>('blockedIPs'), 3000, 'Firestore blockedIPs fetch timed out');
+      alerts = await withTimeout(getCollectionData<Alert>('alerts'), 3000, 'Firestore alerts fetch timed out');
+      reports = await withTimeout(getCollectionData<Report>('reports'), 3000, 'Firestore reports fetch timed out');
 
       // Sort logs by timestamp/date where appropriate
       loginLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -236,6 +244,13 @@ async function seedDatabase() {
   const now = Date.now();
   const oneDay = 24 * 60 * 60 * 1000;
 
+  // Deterministic pseudo-random number generator for consistent seed numbers
+  let seed = 12345;
+  function random() {
+    const x = Math.sin(seed++) * 10000;
+    return x - Math.floor(x);
+  }
+
   // Generate 7 days of login logs
   let logIdCounter = 1;
   for (let d = 7; d >= 0; d--) {
@@ -243,20 +258,20 @@ async function seedDatabase() {
     const dateObj = new Date(dayTimestamp);
     
     // Day-specific parameters to simulate random peaks
-    let numLogins = 8 + Math.floor(Math.random() * 8);
+    let numLogins = 8 + Math.floor(random() * 8);
     if (d === 3) numLogins += 15; // Simulate an attack spike 3 days ago
 
     for (let i = 0; i < numLogins; i++) {
-      const hourOffset = Math.floor(Math.random() * 24);
-      const logTime = new Date(dateObj.setHours(hourOffset, Math.floor(Math.random() * 60))).toISOString();
-      const ip = ips[Math.floor(Math.random() * ips.length)];
-      const browser = browsers[Math.floor(Math.random() * browsers.length)];
-      const os = osList[Math.floor(Math.random() * osList.length)];
-      const device = devices[Math.floor(Math.random() * devices.length)];
+      const hourOffset = Math.floor(random() * 24);
+      const logTime = new Date(dateObj.setHours(hourOffset, Math.floor(random() * 60))).toISOString();
+      const ip = ips[Math.floor(random() * ips.length)];
+      const browser = browsers[Math.floor(random() * browsers.length)];
+      const os = osList[Math.floor(random() * osList.length)];
+      const device = devices[Math.floor(random() * devices.length)];
 
-      const isFailed = Math.random() < (d === 3 ? 0.45 : 0.12); // Higher failed logins on attack spike day
-      const targetUserObj = users[Math.floor(Math.random() * users.length)];
-      const username = isFailed && Math.random() < 0.5 ? 'invalid_user_' + Math.floor(Math.random() * 100) : targetUserObj.username;
+      const isFailed = random() < (d === 3 ? 0.45 : 0.12); // Higher failed logins on attack spike day
+      const targetUserObj = users[Math.floor(random() * users.length)];
+      const username = isFailed && random() < 0.5 ? 'invalid_user_' + Math.floor(random() * 100) : targetUserObj.username;
 
       loginLogs.push({
         id: `log_${logIdCounter++}`,

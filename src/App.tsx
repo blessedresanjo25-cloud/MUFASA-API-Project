@@ -118,38 +118,57 @@ export default function App() {
 
   // Fetch all state data helper
   const refreshAllData = async () => {
+    const fetchJsonSafe = async <T,>(url: string): Promise<T | null> => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) {
+          console.warn(`Fetch to ${url} failed with status ${res.status}`);
+          return null;
+        }
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          return await res.json() as T;
+        }
+        console.warn(`Fetch to ${url} returned non-JSON content type: ${contentType}`);
+        return null;
+      } catch (err) {
+        console.error(`Error fetching/parsing ${url}:`, err);
+        return null;
+      }
+    };
+
     try {
       const [
-        statsRes,
-        chartsRes,
-        logsRes,
-        attacksRes,
-        blockedRes,
-        usersRes,
-        alertsRes,
-        reportsRes,
-        settingsRes
+        statsData,
+        chartsData,
+        logsData,
+        attacksData,
+        blockedData,
+        usersData,
+        alertsData,
+        reportsData,
+        settingsData
       ] = await Promise.all([
-        fetch('/api/analytics/stats'),
-        fetch('/api/analytics/charts'),
-        fetch('/api/logs?limit=100'),
-        fetch('/api/logs/attacks'),
-        fetch('/api/blocked-ips'),
-        fetch('/api/users'),
-        fetch('/api/alerts'),
-        fetch('/api/reports'),
-        fetch('/api/settings')
+        fetchJsonSafe<any>('/api/analytics/stats'),
+        fetchJsonSafe<any>('/api/analytics/charts'),
+        fetchJsonSafe<any[]>('/api/logs?limit=100'),
+        fetchJsonSafe<any[]>('/api/logs/attacks'),
+        fetchJsonSafe<any[]>('/api/blocked-ips'),
+        fetchJsonSafe<any[]>('/api/users'),
+        fetchJsonSafe<any[]>('/api/alerts'),
+        fetchJsonSafe<any[]>('/api/reports'),
+        fetchJsonSafe<any>('/api/settings')
       ]);
 
-      if (statsRes.ok) setStats(await statsRes.json());
-      if (chartsRes.ok) setChartsData(await chartsRes.json());
-      if (logsRes.ok) setLoginLogsList(await logsRes.json());
-      if (attacksRes.ok) setAttackLogsList(await attacksRes.json());
-      if (blockedRes.ok) setBlockedIPsList(await blockedRes.json());
-      if (usersRes.ok) setUsersList(await usersRes.json());
-      if (alertsRes.ok) setAlertsList(await alertsRes.json());
-      if (reportsRes.ok) setReportsList(await reportsRes.json());
-      if (settingsRes.ok) setSettings(await settingsRes.json());
+      if (statsData) setStats(statsData);
+      if (chartsData) setChartsData(chartsData);
+      if (logsData) setLoginLogsList(logsData);
+      if (attacksData) setAttackLogsList(attacksData);
+      if (blockedData) setBlockedIPsList(blockedData);
+      if (usersData) setUsersList(usersData);
+      if (alertsData) setAlertsList(alertsData);
+      if (reportsData) setReportsList(reportsData);
+      if (settingsData) setSettings(settingsData);
     } catch (err) {
       console.error('Error refreshing system data:', err);
     }
@@ -157,15 +176,8 @@ export default function App() {
 
   // Run on load and periodically
   useEffect(() => {
-    // Attempt automatic session restore from localStorage
-    const savedSession = localStorage.getItem('mufasa_session');
-    if (savedSession) {
-      try {
-        setCurrentUser(JSON.parse(savedSession));
-      } catch (e) {
-        localStorage.removeItem('mufasa_session');
-      }
-    }
+    // Force clean up of any legacy sessions on boot to ensure the login page always starts first
+    localStorage.removeItem('mufasa_session');
   }, []);
 
   useEffect(() => {
@@ -198,7 +210,6 @@ export default function App() {
         setAuthError(data.error || 'Authentication failed');
       } else {
         setCurrentUser(data.user);
-        localStorage.setItem('mufasa_session', JSON.stringify(data.user));
       }
     } catch (err) {
       setAuthError('Connection server error during login.');
@@ -221,7 +232,6 @@ export default function App() {
   // Auth: handle logout
   const handleLogout = () => {
     setCurrentUser(null);
-    localStorage.removeItem('mufasa_session');
     setActiveTab('dashboard');
   };
 

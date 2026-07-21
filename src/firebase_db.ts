@@ -45,8 +45,8 @@ function getFirebaseConfig(): FirebaseConfig | null {
         data.projectId && 
         data.projectId.trim() !== '' && 
         data.apiKey.trim() !== '' &&
-        !data.projectId.includes('1234') && 
-        !data.apiKey.includes('YOUR_')
+        !data.projectId.includes('YOUR_PROJECT_ID') && 
+        !data.apiKey.includes('YOUR_API_KEY')
       ) {
         return {
           apiKey: data.apiKey,
@@ -71,8 +71,8 @@ function getFirebaseConfig(): FirebaseConfig | null {
     projectId && 
     apiKey.trim() !== '' && 
     projectId.trim() !== '' && 
-    !apiKey.includes('YOUR_') && 
-    !projectId.includes('1234')
+    !apiKey.includes('YOUR_API_KEY') && 
+    !projectId.includes('YOUR_PROJECT_ID')
   ) {
     return {
       apiKey: apiKey,

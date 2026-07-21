@@ -58,7 +58,8 @@ import {
   TrendingUp,
   FileSpreadsheet,
   Menu,
-  X
+  X,
+  Trash2
 } from 'lucide-react';
 import { User, LoginLog, AttackLog, BlockedIP, Alert, Report, SystemSettings, SecurityStats } from './types';
 
@@ -100,6 +101,7 @@ export default function App() {
   const [resetModalPassword, setResetModalPassword] = useState('');
   const [resetModalSuccess, setResetModalSuccess] = useState('');
   const [resetModalError, setResetModalError] = useState('');
+  const [deleteConfirmUserId, setDeleteConfirmUserId] = useState<string | null>(null);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [showModalPassword, setShowModalPassword] = useState(false);
@@ -368,6 +370,26 @@ export default function App() {
       }
     } catch (err) {
       console.error('Error toggling user status:', err);
+    }
+  };
+
+  // Action: Permanently delete a user operator identity
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      const res = await fetch('/api/users/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+      if (res.ok) {
+        setDeleteConfirmUserId(null);
+        await refreshAllData();
+      } else {
+        const d = await res.json();
+        alert(d.error || 'Failed to delete identity.');
+      }
+    } catch (err) {
+      console.error('Error deleting user:', err);
     }
   };
 
@@ -1830,6 +1852,16 @@ export default function App() {
                             >
                               Change Password
                             </button>
+                            {u.username !== 'admin' && (
+                              <button 
+                                onClick={() => setDeleteConfirmUserId(u.id)}
+                                className="py-1 px-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded text-[10px] font-semibold border border-rose-500/20 transition inline-flex items-center gap-1"
+                                title="Delete Operator Identity"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                Delete
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -2306,6 +2338,62 @@ export default function App() {
                       </button>
                     </div>
                   </form>
+                </motion.div>
+              </div>
+            );
+          })()}
+        </AnimatePresence>
+
+        {/* GLOBAL CUSTOM DELETE CONFIRMATION MODAL */}
+        <AnimatePresence>
+          {deleteConfirmUserId !== null && (() => {
+            const targetUser = usersList.find(u => u.id === deleteConfirmUserId);
+            if (!targetUser) return null;
+            return (
+              <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4">
+                <motion.div 
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.95, opacity: 0 }}
+                  className="bg-slate-900 border border-red-900/30 rounded-2xl max-w-sm w-full p-6 shadow-2xl relative"
+                >
+                  <button 
+                    onClick={() => setDeleteConfirmUserId(null)}
+                    className="absolute top-4 right-4 text-slate-400 hover:text-white"
+                    type="button"
+                  >
+                    <XCircle className="w-5 h-5" />
+                  </button>
+
+                  <h3 className="text-sm font-bold text-rose-400 flex items-center gap-2 pb-3 border-b border-slate-800">
+                    <Trash2 className="w-4 h-4 text-rose-500" />
+                    Delete Identity Permanent
+                  </h3>
+
+                  <p className="text-xs text-slate-300 mt-4 leading-relaxed">
+                    Are you absolutely sure you want to permanently delete the systems operator identity <strong className="text-white">@{targetUser.username}</strong> (<span className="text-slate-400">{targetUser.email}</span>)?
+                  </p>
+
+                  <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-3 mt-4 text-[11px] text-red-400">
+                    <strong>Critical Warning:</strong> This operation cannot be undone. All logs and session attributes linked to this identity will remain, but the active operator credentials will be destroyed.
+                  </div>
+
+                  <div className="flex gap-3 pt-5">
+                    <button
+                      type="button"
+                      onClick={() => setDeleteConfirmUserId(null)}
+                      className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 rounded-xl text-xs transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteUser(targetUser.id)}
+                      className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-medium py-2 rounded-xl text-xs shadow-md transition"
+                    >
+                      Confirm Delete
+                    </button>
+                  </div>
                 </motion.div>
               </div>
             );

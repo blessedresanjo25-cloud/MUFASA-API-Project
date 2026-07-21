@@ -24,7 +24,8 @@ import {
   getCollectionData,
   getDocumentData,
   saveDocument,
-  syncCollection
+  syncCollection,
+  deleteDocument
 } from './src/firebase_db';
 
 const app = express();
@@ -881,6 +882,31 @@ app.post('/api/users/reset-password', (req, res) => {
 
   triggerAlert('Security Password Reset Triggered', `A password reset ticket was generated for "${user.username}".`, 'Low');
   res.json({ message: `Password reset instructions sent to ${user.email} successfully.` });
+});
+
+// POST to delete user identity
+app.post('/api/users/delete', (req, res) => {
+  const { userId } = req.body;
+  const user = users.find(u => u.id === userId);
+  if (!user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  if (user.username === 'admin') {
+    return res.status(400).json({ error: 'Cannot delete the primary administrator account.' });
+  }
+
+  users = users.filter(u => u.id !== userId);
+  saveDatabase();
+
+  if (isFirebaseEnabled()) {
+    deleteDocument('users', userId).catch(err => {
+      console.error(`Error deleting user ${userId} from Firestore:`, err);
+    });
+  }
+
+  triggerAlert('Operator Identity Deleted', `Operator identity "@${user.username}" was permanently deleted.`, 'Medium');
+  res.json({ message: `Operator @${user.username} has been deleted successfully.` });
 });
 
 // GET system alerts

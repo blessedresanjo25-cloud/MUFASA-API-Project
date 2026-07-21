@@ -13,7 +13,8 @@ import {
   setDoc, 
   writeBatch,
   getDoc,
-  setLogLevel
+  setLogLevel,
+  deleteDoc
 } from 'firebase/firestore';
 import fs from 'fs';
 import path from 'path';
@@ -219,6 +220,23 @@ export async function syncCollection<T extends { id: string }>(collectionName: s
     }
   } catch (err) {
     console.error(`Error syncing collection ${collectionName} to Firestore:`, err);
+    throw err;
+  }
+}
+
+/**
+ * Delete a document from a Firestore collection
+ */
+export async function deleteDocument(collectionName: string, docId: string): Promise<void> {
+  if (!db) {
+    throw new Error('Firebase Firestore is not initialized');
+  }
+
+  try {
+    const docRef = doc(db, collectionName, docId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.error(`Error deleting document ${collectionName}/${docId} from Firestore:`, err);
     throw err;
   }
 }

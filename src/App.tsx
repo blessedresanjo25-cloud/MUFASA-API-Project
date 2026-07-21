@@ -56,7 +56,9 @@ import {
   AlertCircle,
   HelpCircle,
   TrendingUp,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Menu,
+  X
 } from 'lucide-react';
 import { User, LoginLog, AttackLog, BlockedIP, Alert, Report, SystemSettings, SecurityStats } from './types';
 
@@ -98,6 +100,10 @@ export default function App() {
   const [resetModalPassword, setResetModalPassword] = useState('');
   const [resetModalSuccess, setResetModalSuccess] = useState('');
   const [resetModalError, setResetModalError] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [showModalPassword, setShowModalPassword] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const [manualIpAddress, setManualIpAddress] = useState('');
   const [manualIpReason, setManualIpReason] = useState('');
@@ -233,6 +239,7 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     setActiveTab('dashboard');
+    setIsMobileMenuOpen(false);
   };
 
   // Simulation: Trigger attack on server
@@ -370,6 +377,7 @@ export default function App() {
     setResetModalPassword('');
     setResetModalSuccess('');
     setResetModalError('');
+    setShowModalPassword(false);
   };
 
   // Action: Submit updated passcode
@@ -391,7 +399,19 @@ export default function App() {
       if (res.ok) {
         setResetModalSuccess(d.message);
         setResetModalError('');
+        
+        // Auto-reveal the passcode in the table
+        const targetId = resetModalUserId;
+        setVisiblePasswords(prev => ({ ...prev, [targetId]: true }));
+        
         await refreshAllData();
+        
+        // Gracefully auto-close modal
+        setTimeout(() => {
+          setResetModalUserId(null);
+          setResetModalPassword('');
+          setResetModalSuccess('');
+        }, 1800);
       } else {
         setResetModalError(d.error || 'Failed to update passcode.');
       }
@@ -561,13 +581,21 @@ export default function App() {
               <div className="relative">
                 <input 
                   id="password"
-                  type="password"
+                  type={showLoginPassword ? "text" : "password"}
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                   placeholder="Enter system passcode"
-                  className="w-full bg-slate-950/60 border border-slate-800 rounded-xl py-3 px-4 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition duration-150"
+                  className="w-full bg-slate-950/60 border border-slate-800 rounded-xl py-3 pl-4 pr-11 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition duration-150"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowLoginPassword(!showLoginPassword)}
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-slate-300 transition-colors focus:outline-none"
+                  title={showLoginPassword ? "Hide password" : "Show password"}
+                >
+                  {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
@@ -617,9 +645,9 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 font-sans text-slate-100 flex flex-col md:flex-row">
       {/* 1. SIDEBAR NAVIGATION */}
-      <aside className="w-full md:w-64 bg-slate-900 border-r border-slate-800 shrink-0 flex flex-col relative z-20">
-        {/* Core Suite Header */}
-        <div className="p-6 border-b border-slate-800">
+      <aside className="sticky top-0 z-30 w-full md:sticky md:top-0 md:h-screen md:w-64 bg-slate-900 border-b md:border-b-0 md:border-r border-slate-800 shrink-0 flex flex-col">
+        {/* Core Suite Header - ALWAYS STAGNANT (Sticky top on mobile/desktop) */}
+        <div className="p-4 md:p-6 border-b border-slate-800 flex items-center justify-between sticky top-0 bg-slate-900 z-40 w-full">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-emerald-500/15 border border-emerald-500/30 rounded-xl flex items-center justify-center">
               <Shield className="w-5 h-5 text-emerald-400 animate-pulse" />
@@ -629,120 +657,134 @@ export default function App() {
               <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest block">Security Suite</span>
             </div>
           </div>
-          {/* User Logged In Summary */}
-          <div className="mt-4 bg-slate-850 rounded-lg p-3 border border-slate-800 flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 font-bold uppercase border border-slate-700 text-xs">
-              {currentUser.username[0]}
-            </div>
-            <div className="overflow-hidden">
-              <span className="text-xs font-semibold text-slate-200 block truncate">{currentUser.username}</span>
-              <span className="text-[10px] text-slate-400 block font-mono truncate">{currentUser.role}</span>
-            </div>
-          </div>
+
+          {/* Toggle Menu Button for Mobile Screens */}
+          <button
+            type="button"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="md:hidden p-2 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-805 transition duration-150 flex items-center justify-center focus:outline-none"
+            title="Toggle Menu"
+          >
+            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
         </div>
 
-        {/* Dynamic Navigation Menu */}
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest px-3 block mb-2">Monitor Area</span>
-          
-          <button 
-            type="button"
-            onClick={() => setActiveTab('dashboard')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'dashboard' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
-          >
-            <Activity className="w-4 h-4 shrink-0" />
-            Admin Dashboard
-          </button>
+        {/* Collapsible Mobile Navigation Wrapper */}
+        <div className={`${isMobileMenuOpen ? 'flex' : 'hidden'} md:flex flex-col flex-1 overflow-y-auto max-h-[calc(100vh-80px)] md:max-h-none bg-slate-900 md:bg-transparent`}>
+          {/* User Logged In Summary */}
+          <div className="p-4 md:p-6 pb-0">
+            <div className="bg-slate-850 rounded-lg p-3 border border-slate-800 flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 font-bold uppercase border border-slate-700 text-xs">
+                {currentUser.username[0]}
+              </div>
+              <div className="overflow-hidden">
+                <span className="text-xs font-semibold text-slate-200 block truncate">{currentUser.username}</span>
+                <span className="text-[10px] text-slate-400 block font-mono truncate">{currentUser.role}</span>
+              </div>
+            </div>
+          </div>
 
-          <button 
-            type="button"
-            onClick={() => setActiveTab('activity_logs')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'activity_logs' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
-          >
-            <Database className="w-4 h-4 shrink-0" />
-            Login Activity Logs
-          </button>
+          {/* Dynamic Navigation Menu */}
+          <nav className="flex-1 p-4 space-y-1">
+            <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest px-3 block mb-2">Monitor Area</span>
+            
+            <button 
+              type="button"
+              onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'dashboard' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
+            >
+              <Activity className="w-4 h-4 shrink-0" />
+              Admin Dashboard
+            </button>
 
-          <button 
-            type="button"
-            onClick={() => setActiveTab('attack_logs')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'attack_logs' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
-          >
-            <ShieldAlert className="w-4 h-4 shrink-0" />
-            Attack Intrusion Logs
-          </button>
+            <button 
+              type="button"
+              onClick={() => { setActiveTab('activity_logs'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'activity_logs' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
+            >
+              <Database className="w-4 h-4 shrink-0" />
+              Login Activity Logs
+            </button>
 
-          {isAdmin && (
-            <>
-              <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest px-3 block pt-4 mb-2">Controls</span>
+            <button 
+              type="button"
+              onClick={() => { setActiveTab('attack_logs'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'attack_logs' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
+            >
+              <ShieldAlert className="w-4 h-4 shrink-0" />
+              Attack Intrusion Logs
+            </button>
 
-              <button 
-                type="button"
-                onClick={() => setActiveTab('blocked_ips')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'blocked_ips' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
-              >
-                <Globe className="w-4 h-4 shrink-0" />
-                IP Access Blocklist
-                {blockedIPsList.filter(b => isIPCurrentlyBanned(b.blockedUntil, b.status)).length > 0 && (
-                  <span className="ml-auto bg-red-500/15 border border-red-500/30 text-red-400 text-[10px] px-1.5 py-0.5 rounded-full font-mono">
-                    {blockedIPsList.filter(b => isIPCurrentlyBanned(b.blockedUntil, b.status)).length}
-                  </span>
-                )}
-              </button>
+            {isAdmin && (
+              <>
+                <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest px-3 block pt-4 mb-2">Controls</span>
 
-              <button 
-                type="button"
-                onClick={() => setActiveTab('user_manager')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'user_manager' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
-              >
-                <Users className="w-4 h-4 shrink-0" />
-                Identity Manager
-              </button>
+                <button 
+                  type="button"
+                  onClick={() => { setActiveTab('blocked_ips'); setIsMobileMenuOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'blocked_ips' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
+                >
+                  <Globe className="w-4 h-4 shrink-0" />
+                  IP Access Blocklist
+                  {blockedIPsList.filter(b => isIPCurrentlyBanned(b.blockedUntil, b.status)).length > 0 && (
+                    <span className="ml-auto bg-red-500/15 border border-red-500/30 text-red-400 text-[10px] px-1.5 py-0.5 rounded-full font-mono">
+                      {blockedIPsList.filter(b => isIPCurrentlyBanned(b.blockedUntil, b.status)).length}
+                    </span>
+                  )}
+                </button>
 
-              <button 
-                type="button"
-                onClick={() => setActiveTab('reports')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'reports' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
-              >
-                <FileText className="w-4 h-4 shrink-0" />
-                Security Audit Reports
-              </button>
+                <button 
+                  type="button"
+                  onClick={() => { setActiveTab('user_manager'); setIsMobileMenuOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'user_manager' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
+                >
+                  <Users className="w-4 h-4 shrink-0" />
+                  Identity Manager
+                </button>
 
+                <button 
+                  type="button"
+                  onClick={() => { setActiveTab('reports'); setIsMobileMenuOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'reports' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
+                >
+                  <FileText className="w-4 h-4 shrink-0" />
+                  Security Audit Reports
+                </button>
 
+                <button 
+                  type="button"
+                  onClick={() => { setActiveTab('settings'); setIsMobileMenuOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'settings' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
+                >
+                  <Settings className="w-4 h-4 shrink-0" />
+                  Suite Configurations
+                </button>
+              </>
+            )}
 
-              <button 
-                type="button"
-                onClick={() => setActiveTab('settings')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'settings' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
-              >
-                <Settings className="w-4 h-4 shrink-0" />
-                Suite Configurations
-              </button>
-            </>
-          )}
+            <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest px-3 block pt-4 mb-2">Support</span>
 
-          <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest px-3 block pt-4 mb-2">Support</span>
+            <button 
+              type="button"
+              onClick={() => { setActiveTab('about'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'about' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
+            >
+              <Info className="w-4 h-4 shrink-0" />
+              Comparison & Guide
+            </button>
+          </nav>
 
-          <button 
-            type="button"
-            onClick={() => setActiveTab('about')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'about' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
-          >
-            <Info className="w-4 h-4 shrink-0" />
-            Comparison & Guide
-          </button>
-        </nav>
-
-        {/* Footer Logout Option */}
-        <div className="p-4 border-t border-slate-800 bg-slate-905">
-          <button 
-            type="button"
-            onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/10 rounded-xl transition duration-150"
-          >
-            <LogOut className="w-4 h-4" />
-            Terminate Session
-          </button>
+          {/* Footer Logout Option */}
+          <div className="p-4 border-t border-slate-800 bg-slate-905">
+            <button 
+              type="button"
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/10 rounded-xl transition duration-150"
+            >
+              <LogOut className="w-4 h-4" />
+              Terminate Session
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -1682,14 +1724,24 @@ export default function App() {
 
                   <div>
                     <label className="block text-slate-400 text-xs font-medium mb-1" htmlFor="reg-password">System Passcode / Password</label>
-                    <input 
-                      id="reg-password"
-                      type="password"
-                      placeholder="Enter a custom password (or empty for 'user123')"
-                      value={newUserPassword}
-                      onChange={(e) => setNewUserPassword(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500"
-                    />
+                    <div className="relative">
+                      <input 
+                        id="reg-password"
+                        type={showRegPassword ? "text" : "password"}
+                        placeholder="Enter a custom password (or empty for 'user123')"
+                        value={newUserPassword}
+                        onChange={(e) => setNewUserPassword(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 pl-3 pr-10 text-xs text-white focus:outline-none focus:border-emerald-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRegPassword(!showRegPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-slate-300 transition-colors focus:outline-none"
+                        title={showRegPassword ? "Hide passcode" : "Show passcode"}
+                      >
+                        {showRegPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
                   </div>
 
                   {userFormError && <p className="text-[11px] text-red-400 font-medium">{userFormError}</p>}
@@ -1776,7 +1828,7 @@ export default function App() {
                               onClick={() => handleResetPassword(u.id)}
                               className="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-semibold border border-slate-700 transition"
                             >
-                              Reset
+                              Change Password
                             </button>
                           </td>
                         </tr>
@@ -1994,74 +2046,7 @@ export default function App() {
                 )}
               </AnimatePresence>
 
-              {/* CUSTOM PASSWORD RESET MODAL */}
-              <AnimatePresence>
-                {resetModalUserId !== null && (() => {
-                  const targetUser = usersList.find(u => u.id === resetModalUserId);
-                  if (!targetUser) return null;
-                  return (
-                    <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4">
-                      <motion.div 
-                        initial={{ scale: 0.95, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.95, opacity: 0 }}
-                        className="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl relative"
-                      >
-                        <button 
-                          onClick={() => setResetModalUserId(null)}
-                          className="absolute top-4 right-4 text-slate-400 hover:text-white"
-                          type="button"
-                        >
-                          <XCircle className="w-5 h-5" />
-                        </button>
-
-                        <h3 className="text-sm font-bold text-white flex items-center gap-2 pb-3 border-b border-slate-800">
-                          <Key className="w-4 h-4 text-emerald-400" />
-                          Set Operator Passcode
-                        </h3>
-
-                        <p className="text-xs text-slate-400 mt-3">
-                          You are setting a custom passcode/password for operator <strong className="text-white">@{targetUser.username}</strong>.
-                        </p>
-
-                        <form onSubmit={handleSubmitResetPassword} className="space-y-4 mt-4">
-                          <div>
-                            <label className="block text-slate-400 text-[11px] font-medium mb-1" htmlFor="modal-new-password">New Passcode</label>
-                            <input 
-                              id="modal-new-password"
-                              type="password"
-                              placeholder="Enter new desired passcode"
-                              value={resetModalPassword}
-                              onChange={(e) => setResetModalPassword(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500"
-                              autoFocus
-                            />
-                          </div>
-
-                          {resetModalError && <p className="text-[11px] text-red-400 font-medium">{resetModalError}</p>}
-                          {resetModalSuccess && <p className="text-[11px] text-emerald-400 font-medium">{resetModalSuccess}</p>}
-
-                          <div className="flex gap-2 pt-2">
-                            <button
-                              type="button"
-                              onClick={() => setResetModalUserId(null)}
-                              className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 rounded-xl text-xs transition"
-                            >
-                              Close
-                            </button>
-                            <button
-                              type="submit"
-                              className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 rounded-xl text-xs shadow-md transition"
-                            >
-                              Save Passcode
-                            </button>
-                          </div>
-                        </form>
-                      </motion.div>
-                    </div>
-                  );
-                })()}
-              </AnimatePresence>
+              {/* CUSTOM PASSWORD RESET MODAL WAS MOVED OUT OF THE REPORTS VIEW TO THE GLOBAL SCOPE */}
             </div>
           )}
 
@@ -2247,6 +2232,85 @@ export default function App() {
           )}
 
         </div>
+
+        {/* GLOBAL CUSTOM PASSWORD RESET MODAL */}
+        <AnimatePresence>
+          {resetModalUserId !== null && (() => {
+            const targetUser = usersList.find(u => u.id === resetModalUserId);
+            if (!targetUser) return null;
+            return (
+              <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4">
+                <motion.div 
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.95, opacity: 0 }}
+                  className="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl relative"
+                >
+                  <button 
+                    onClick={() => setResetModalUserId(null)}
+                    className="absolute top-4 right-4 text-slate-400 hover:text-white"
+                    type="button"
+                  >
+                    <XCircle className="w-5 h-5" />
+                  </button>
+
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2 pb-3 border-b border-slate-800">
+                    <Key className="w-4 h-4 text-emerald-400" />
+                    Set Operator Passcode
+                  </h3>
+
+                  <p className="text-xs text-slate-400 mt-3">
+                    You are setting a custom passcode/password for operator <strong className="text-white">@{targetUser.username}</strong>.
+                  </p>
+
+                  <form onSubmit={handleSubmitResetPassword} className="space-y-4 mt-4">
+                    <div>
+                      <label className="block text-slate-400 text-[11px] font-medium mb-1" htmlFor="modal-new-password">New Passcode</label>
+                      <div className="relative">
+                        <input 
+                          id="modal-new-password"
+                          type={showModalPassword ? "text" : "password"}
+                          placeholder="Enter new desired passcode"
+                          value={resetModalPassword}
+                          onChange={(e) => setResetModalPassword(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 pl-3 pr-10 text-xs text-white focus:outline-none focus:border-emerald-500"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowModalPassword(!showModalPassword)}
+                          className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-slate-300 transition-colors focus:outline-none"
+                          title={showModalPassword ? "Hide passcode" : "Show passcode"}
+                        >
+                          {showModalPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {resetModalError && <p className="text-[11px] text-red-400 font-medium">{resetModalError}</p>}
+                    {resetModalSuccess && <p className="text-[11px] text-emerald-400 font-medium">{resetModalSuccess}</p>}
+
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setResetModalUserId(null)}
+                        className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 rounded-xl text-xs transition"
+                      >
+                        Close
+                      </button>
+                      <button
+                        type="submit"
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 rounded-xl text-xs shadow-md transition"
+                      >
+                        Save Passcode
+                      </button>
+                    </div>
+                  </form>
+                </motion.div>
+              </div>
+            );
+          })()}
+        </AnimatePresence>
 
         {/* Dynamic Presentation footer */}
         <footer className="bg-slate-900 border-t border-slate-800 h-10 px-6 flex items-center justify-between text-[10px] text-slate-500 shrink-0 font-mono">

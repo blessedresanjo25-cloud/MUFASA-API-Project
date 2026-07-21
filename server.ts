@@ -128,8 +128,21 @@ async function loadDatabase() {
       const dbSettings = await withTimeout(getDocumentData<SystemSettings>('settings', 'systemSettings'), 3000, 'Firestore settings fetch timed out');
       
       if (dbUsers.length > 0) {
-        users = dbUsers;
+        let updated = false;
+        users = dbUsers.map(u => {
+          if (!u.password) {
+            updated = true;
+            return {
+              ...u,
+              password: u.username === 'admin' ? 'admin123' : u.username === 'analyst_sarah' ? 'sarah123' : 'user123'
+            };
+          }
+          return u;
+        });
         console.log(`Loaded ${users.length} users from Firestore.`);
+        if (updated) {
+          saveDatabase();
+        }
       } else {
         // Seeding database if users is empty (meaning Firestore is empty)
         await seedDatabase();
@@ -166,7 +179,18 @@ async function loadDatabase() {
     try {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
       const data = JSON.parse(raw);
-      users = data.users || [];
+      const loadedUsers = data.users || [];
+      let updated = false;
+      users = loadedUsers.map((u: any) => {
+        if (!u.password) {
+          updated = true;
+          return {
+            ...u,
+            password: u.username === 'admin' ? 'admin123' : u.username === 'analyst_sarah' ? 'sarah123' : 'user123'
+          };
+        }
+        return u;
+      });
       loginLogs = data.loginLogs || [];
       attackLogs = data.attackLogs || [];
       blockedIPs = data.blockedIPs || [];
@@ -174,6 +198,9 @@ async function loadDatabase() {
       reports = data.reports || [];
       systemSettings = data.systemSettings || systemSettings;
       console.log('Loaded database from disk successfully.');
+      if (updated) {
+        saveDatabase();
+      }
       return;
     } catch (err) {
       console.error('Error parsing database file, seeding instead:', err);
@@ -195,7 +222,8 @@ async function seedDatabase() {
       role: 'Administrator',
       status: 'Active',
       createdAt: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(),
-      lastLogin: new Date().toISOString()
+      lastLogin: new Date().toISOString(),
+      password: 'admin123'
     },
     {
       id: 'usr_analyst',
@@ -204,7 +232,8 @@ async function seedDatabase() {
       role: 'Administrator',
       status: 'Active',
       createdAt: new Date(Date.now() - 15 * 24 * 3600 * 1000).toISOString(),
-      lastLogin: new Date(Date.now() - 12 * 3600 * 1000).toISOString()
+      lastLogin: new Date(Date.now() - 12 * 3600 * 1000).toISOString(),
+      password: 'sarah123'
     },
     {
       id: 'usr_staff1',
@@ -213,7 +242,8 @@ async function seedDatabase() {
       role: 'User',
       status: 'Active',
       createdAt: new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString(),
-      lastLogin: new Date(Date.now() - 1 * 24 * 3600 * 1000).toISOString()
+      lastLogin: new Date(Date.now() - 1 * 24 * 3600 * 1000).toISOString(),
+      password: 'user123'
     },
     {
       id: 'usr_staff2',
@@ -222,7 +252,8 @@ async function seedDatabase() {
       role: 'User',
       status: 'Active',
       createdAt: new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString(),
-      lastLogin: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString()
+      lastLogin: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(),
+      password: 'user123'
     },
     {
       id: 'usr_temp',
@@ -231,7 +262,8 @@ async function seedDatabase() {
       role: 'User',
       status: 'Deactivated',
       createdAt: new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString(),
-      lastLogin: new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString()
+      lastLogin: new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString(),
+      password: 'user123'
     }
   ];
 

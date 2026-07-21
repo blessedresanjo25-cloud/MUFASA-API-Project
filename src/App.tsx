@@ -2400,11 +2400,7 @@ export default function App() {
           })()}
         </AnimatePresence>
 
-        {/* Dynamic Presentation footer */}
-        <footer className="bg-slate-900 border-t border-slate-800 h-10 px-6 flex items-center justify-between text-[10px] text-slate-500 shrink-0 font-mono">
-          <span>PROJECT TITLE: DETECTING AND MONITORING FRAUDULENT LOGIN ATTEMPTS</span>
-          <span>SYSTEM CLOCK: UTC REAL-TIME</span>
-        </footer>
+
       </main>
     </div>
   );

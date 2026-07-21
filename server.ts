@@ -28,6 +28,11 @@ import {
   deleteDocument
 } from './src/firebase_db';
 
+// Import Firebase Admin DB and bcrypt
+// @ts-ignore
+import { db as adminDb } from './firebase.js';
+import bcrypt from 'bcryptjs';
+
 const app = express();
 const PORT = 3000;
 
@@ -53,6 +58,50 @@ let systemSettings: SystemSettings = {
   threatMediumThreshold: 8,
   sessionTimeout: 30
 };
+
+// --- Firebase Admin Helpers ---
+async function getFirestoreUsers(): Promise<User[]> {
+  if (adminDb) {
+    try {
+      const snapshot = await adminDb.collection('users').get();
+      const dbUsers: User[] = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }) as User);
+      if (dbUsers.length > 0) {
+        users = dbUsers;
+      }
+    } catch (err) {
+      console.error('Error fetching users from Firebase Admin Firestore:', err);
+    }
+  }
+  return users;
+}
+
+async function getFirestoreLoginLogs(): Promise<LoginLog[]> {
+  if (adminDb) {
+    try {
+      const snapshot = await adminDb.collection('loginLogs').get();
+      const dbLogs: LoginLog[] = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }) as LoginLog);
+      if (dbLogs.length > 0) {
+        dbLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        loginLogs = dbLogs;
+      }
+    } catch (err) {
+      console.error('Error fetching login logs from Firebase Admin Firestore:', err);
+    }
+  }
+  return loginLogs;
+}
+
+async function addLoginLog(log: LoginLog) {
+  if (adminDb) {
+    try {
+      await adminDb.collection('loginLogs').doc(log.id).set(log);
+    } catch (err) {
+      console.error('Error saving login log to Firebase Admin Firestore:', err);
+    }
+  }
+  loginLogs.unshift(log);
+  saveDatabase();
+}
 
 // Lazy initialization of Gemini client
 let aiClient: GoogleGenAI | null = null;
@@ -120,43 +169,53 @@ function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Prom
 // Helper to load or seed state
 async function loadDatabase() {
   const firebaseSuccess = initFirebase();
+  
+  // 1. Try loading users and loginLogs via Firebase Admin first if available
+  if (adminDb) {
+    try {
+      console.log('Firebase Admin detected. Loading users & login logs...');
+      await getFirestoreUsers();
+      await getFirestoreLoginLogs();
+    } catch (err) {
+      console.error('Error loading users/logs from Firebase Admin:', err);
+    }
+  }
+
   if (firebaseSuccess && isFirebaseEnabled()) {
     try {
-      console.log('Attempting to load database from Firebase Firestore...');
-      // 1. Load users with 3-second timeout
-      const dbUsers = await withTimeout(getCollectionData<User>('users'), 3000, 'Firestore users fetch timed out');
-      // 2. Load system settings with 3-second timeout
-      const dbSettings = await withTimeout(getDocumentData<SystemSettings>('settings', 'systemSettings'), 3000, 'Firestore settings fetch timed out');
-      
-      if (dbUsers.length > 0) {
-        let updated = false;
-        users = dbUsers.map(u => {
-          if (!u.password) {
-            updated = true;
-            return {
-              ...u,
-              password: u.username === 'admin' ? 'admin123' : u.username === 'analyst_sarah' ? 'sarah123' : 'user123'
-            };
+      console.log('Attempting to load remaining database tables from Firebase Firestore...');
+      // Only load users if not already loaded by Admin
+      if (users.length === 0) {
+        const dbUsers = await withTimeout(getCollectionData<User>('users'), 3000, 'Firestore users fetch timed out');
+        if (dbUsers.length > 0) {
+          let updated = false;
+          users = dbUsers.map(u => {
+            if (!u.password) {
+              updated = true;
+              return {
+                ...u,
+                password: u.username === 'admin' ? bcrypt.hashSync('admin123', 10) : u.username === 'analyst_sarah' ? bcrypt.hashSync('sarah123', 10) : bcrypt.hashSync('user123', 10)
+              };
+            }
+            return u;
+          });
+          if (updated) {
+            saveDatabase();
           }
-          return u;
-        });
-        console.log(`Loaded ${users.length} users from Firestore.`);
-        if (updated) {
-          saveDatabase();
         }
-      } else {
-        // Seeding database if users is empty (meaning Firestore is empty)
-        await seedDatabase();
-        return;
       }
 
+      // Load system settings
+      const dbSettings = await withTimeout(getDocumentData<SystemSettings>('settings', 'systemSettings'), 3000, 'Firestore settings fetch timed out');
       if (dbSettings) {
         systemSettings = dbSettings;
         console.log('Loaded system settings from Firestore.');
       }
 
-      // Load logs and other arrays with timeouts
-      loginLogs = await withTimeout(getCollectionData<LoginLog>('loginLogs'), 3000, 'Firestore loginLogs fetch timed out');
+      // Load remaining collections
+      if (loginLogs.length === 0) {
+        loginLogs = await withTimeout(getCollectionData<LoginLog>('loginLogs'), 3000, 'Firestore loginLogs fetch timed out');
+      }
       attackLogs = await withTimeout(getCollectionData<AttackLog>('attackLogs'), 3000, 'Firestore attackLogs fetch timed out');
       blockedIPs = await withTimeout(getCollectionData<BlockedIP>('blockedIPs'), 3000, 'Firestore blockedIPs fetch timed out');
       alerts = await withTimeout(getCollectionData<Alert>('alerts'), 3000, 'Firestore alerts fetch timed out');
@@ -168,7 +227,10 @@ async function loadDatabase() {
       alerts.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       reports.sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime());
 
-      console.log('Loaded all database tables from Firestore successfully.');
+      console.log('Loaded database tables successfully.');
+      if (users.length === 0) {
+        await seedDatabase();
+      }
       return;
     } catch (err) {
       console.error('Error loading database from Firestore, falling back to local disk:', err);
@@ -187,7 +249,7 @@ async function loadDatabase() {
           updated = true;
           return {
             ...u,
-            password: u.username === 'admin' ? 'admin123' : u.username === 'analyst_sarah' ? 'sarah123' : 'user123'
+            password: u.username === 'admin' ? bcrypt.hashSync('admin123', 10) : u.username === 'analyst_sarah' ? bcrypt.hashSync('sarah123', 10) : bcrypt.hashSync('user123', 10)
           };
         }
         return u;
@@ -224,7 +286,7 @@ async function seedDatabase() {
       status: 'Active',
       createdAt: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(),
       lastLogin: new Date().toISOString(),
-      password: 'admin123'
+      password: bcrypt.hashSync('admin123', 10)
     },
     {
       id: 'usr_analyst',
@@ -234,7 +296,7 @@ async function seedDatabase() {
       status: 'Active',
       createdAt: new Date(Date.now() - 15 * 24 * 3600 * 1000).toISOString(),
       lastLogin: new Date(Date.now() - 12 * 3600 * 1000).toISOString(),
-      password: 'sarah123'
+      password: bcrypt.hashSync('sarah123', 10)
     },
     {
       id: 'usr_staff1',
@@ -244,7 +306,7 @@ async function seedDatabase() {
       status: 'Active',
       createdAt: new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString(),
       lastLogin: new Date(Date.now() - 1 * 24 * 3600 * 1000).toISOString(),
-      password: 'user123'
+      password: bcrypt.hashSync('user123', 10)
     },
     {
       id: 'usr_staff2',
@@ -254,7 +316,7 @@ async function seedDatabase() {
       status: 'Active',
       createdAt: new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString(),
       lastLogin: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(),
-      password: 'user123'
+      password: bcrypt.hashSync('user123', 10)
     },
     {
       id: 'usr_temp',
@@ -264,7 +326,7 @@ async function seedDatabase() {
       status: 'Deactivated',
       createdAt: new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString(),
       lastLogin: new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString(),
-      password: 'user123'
+      password: bcrypt.hashSync('user123', 10)
     }
   ];
 
@@ -547,7 +609,10 @@ function calculateThreatLevel(): 'Low' | 'Medium' | 'High' {
 // ==========================================
 
 // Calculate dynamic analytics data
-app.get('/api/analytics/stats', (req, res) => {
+app.get('/api/analytics/stats', async (req, res) => {
+  await getFirestoreUsers();
+  await getFirestoreLoginLogs();
+
   const score = calculateSecurityScore();
   const threat = calculateThreatLevel();
   const now = Date.now();
@@ -606,7 +671,8 @@ app.get('/api/analytics/stats', (req, res) => {
 });
 
 // GET all dashboard data charts in structured series
-app.get('/api/analytics/charts', (req, res) => {
+app.get('/api/analytics/charts', async (req, res) => {
+  await getFirestoreLoginLogs();
   // 1. Success vs Failed logins pie
   const successfulLoginsCount = loginLogs.filter(l => l.status === 'Success').length;
   const failedLoginsCount = loginLogs.filter(l => l.status === 'Failed').length;
@@ -692,7 +758,8 @@ app.get('/api/analytics/charts', (req, res) => {
 });
 
 // GET all logs (supports query filters)
-app.get('/api/logs', (req, res) => {
+app.get('/api/logs', async (req, res) => {
+  await getFirestoreLoginLogs();
   const { username, ipAddress, status, search, limit } = req.query;
   let filtered = [...loginLogs];
 
@@ -810,21 +877,27 @@ app.post('/api/settings', (req, res) => {
 });
 
 // GET users management
-app.get('/api/users', (req, res) => {
+app.get('/api/users', async (req, res) => {
+  await getFirestoreUsers();
   res.json(users);
 });
 
 // POST create/invite user
-app.post('/api/users', (req, res) => {
+app.post('/api/users', async (req, res) => {
   const { username, email, role, password } = req.body;
   if (!username || !email || !role) {
     return res.status(400).json({ error: 'All fields are required' });
   }
 
+  await getFirestoreUsers();
   const exists = users.find(u => u.username.toLowerCase() === username.toLowerCase() || u.email.toLowerCase() === email.toLowerCase());
   if (exists) {
     return res.status(400).json({ error: 'Username or email already exists' });
   }
+
+  const plainPass = password && password.trim() !== '' ? password.trim() : 'user123';
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(plainPass, salt);
 
   const newUser: User = {
     id: `usr_${Date.now()}`,
@@ -833,11 +906,16 @@ app.post('/api/users', (req, res) => {
     role,
     status: 'Active',
     createdAt: new Date().toISOString(),
-    lastLogin: null
+    lastLogin: null,
+    password: hashedPassword
   };
 
-  if (password && password.trim() !== '') {
-    newUser.password = password.trim();
+  if (adminDb) {
+    try {
+      await adminDb.collection('users').doc(newUser.id).set(newUser);
+    } catch (err) {
+      console.error('Error saving user to Firestore Admin:', err);
+    }
   }
 
   users.push(newUser);
@@ -847,8 +925,9 @@ app.post('/api/users', (req, res) => {
 });
 
 // POST toggle user status
-app.post('/api/users/toggle-status', (req, res) => {
+app.post('/api/users/toggle-status', async (req, res) => {
   const { userId } = req.body;
+  await getFirestoreUsers();
   const user = users.find(u => u.id === userId);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
@@ -860,21 +939,42 @@ app.post('/api/users/toggle-status', (req, res) => {
   }
 
   user.status = user.status === 'Active' ? 'Deactivated' : 'Active';
+
+  if (adminDb) {
+    try {
+      await adminDb.collection('users').doc(userId).update({ status: user.status });
+    } catch (err) {
+      console.error('Error updating user status in Firestore Admin:', err);
+    }
+  }
+
   saveDatabase();
   triggerAlert('User Status Altered', `User account status of "${user.username}" was set to "${user.status}".`, 'Low');
   res.json({ message: 'Status updated successfully', user });
 });
 
 // POST to reset/update user password
-app.post('/api/users/reset-password', (req, res) => {
+app.post('/api/users/reset-password', async (req, res) => {
   const { userId, newPassword } = req.body;
+  await getFirestoreUsers();
   const user = users.find(u => u.id === userId);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
 
   if (newPassword && newPassword.trim() !== '') {
-    user.password = newPassword.trim();
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword.trim(), salt);
+    user.password = hashedPassword;
+
+    if (adminDb) {
+      try {
+        await adminDb.collection('users').doc(userId).update({ password: hashedPassword });
+      } catch (err) {
+        console.error('Error updating password in Firestore Admin:', err);
+      }
+    }
+
     saveDatabase();
     triggerAlert('User Password Updated', `Operator passcode for "${user.username}" was updated successfully.`, 'Low');
     return res.json({ message: `Passcode for "${user.username}" was updated to "${newPassword.trim()}" successfully.` });
@@ -885,8 +985,9 @@ app.post('/api/users/reset-password', (req, res) => {
 });
 
 // POST to delete user identity
-app.post('/api/users/delete', (req, res) => {
+app.post('/api/users/delete', async (req, res) => {
   const { userId } = req.body;
+  await getFirestoreUsers();
   const user = users.find(u => u.id === userId);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
@@ -897,6 +998,15 @@ app.post('/api/users/delete', (req, res) => {
   }
 
   users = users.filter(u => u.id !== userId);
+  
+  if (adminDb) {
+    try {
+      await adminDb.collection('users').doc(userId).delete();
+    } catch (err) {
+      console.error('Error deleting user from Firestore Admin:', err);
+    }
+  }
+
   saveDatabase();
 
   if (isFirebaseEnabled()) {
@@ -1263,7 +1373,7 @@ Use clean Markdown layout. Avoid self-praising or marketing slogans. Keep it ana
 // ==========================================
 
 // Authenticate Administrator / Standard User
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { username, password, ipAddress } = req.body;
   const userIP = ipAddress || req.ip || '127.0.0.1';
 
@@ -1271,6 +1381,10 @@ app.post('/api/auth/login', (req, res) => {
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required' });
   }
+
+  // Fetch newest logs and users from firestore admin first
+  await getFirestoreUsers();
+  await getFirestoreLoginLogs();
 
   // 2. Check if IP is blocked
   const activeBlock = checkIPBlocked(userIP);
@@ -1306,8 +1420,9 @@ app.post('/api/auth/login', (req, res) => {
   
   if (!user) {
     // Record failed login (User not found)
-    loginLogs.unshift({
-      id: `log_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+    const newLogId = `log_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const failedLog: LoginLog = {
+      id: newLogId,
       userId: null,
       username,
       timestamp: new Date().toISOString(),
@@ -1317,8 +1432,8 @@ app.post('/api/auth/login', (req, res) => {
       os: 'Standard OS',
       status: 'Failed',
       failureReason: 'User not found'
-    });
-    saveDatabase();
+    };
+    await addLoginLog(failedLog);
 
     // Check credential stuffing (Many usernames tried from same IP)
     const distinctUsersTried = new Set(
@@ -1345,7 +1460,7 @@ app.post('/api/auth/login', (req, res) => {
 
   // Verify deactivated user
   if (user.status === 'Deactivated') {
-    loginLogs.unshift({
+    const failedLog: LoginLog = {
       id: `log_${Date.now()}`,
       userId: user.id,
       username,
@@ -1356,25 +1471,25 @@ app.post('/api/auth/login', (req, res) => {
       os: 'Standard OS',
       status: 'Failed',
       failureReason: 'Account deactivated'
-    });
-    saveDatabase();
+    };
+    await addLoginLog(failedLog);
     return res.status(403).json({ error: 'This user account is deactivated by the administrator.' });
   }
 
-  // Authenticate simple password check
-  // For standard demonstration, passwords are: admin -> admin123, other accounts -> user123
+  // Authenticate using bcrypt
   let isCorrectPassword = false;
-  if (user.password && user.password.trim() !== '') {
-    isCorrectPassword = password === user.password;
+  if (user.password && (user.password.startsWith('$2a$') || user.password.startsWith('$2b$'))) {
+    isCorrectPassword = await bcrypt.compare(password, user.password);
   } else {
-    isCorrectPassword = (username === 'admin' && password === 'admin123') || 
+    isCorrectPassword = password === user.password ||
+                        (username === 'admin' && password === 'admin123') || 
                         (username === 'analyst_sarah' && password === 'sarah123') ||
                         (username !== 'admin' && username !== 'analyst_sarah' && password === 'user123');
   }
 
   if (!isCorrectPassword) {
     // Record failure
-    loginLogs.unshift({
+    const failedLog: LoginLog = {
       id: `log_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       userId: user.id,
       username,
@@ -1385,8 +1500,8 @@ app.post('/api/auth/login', (req, res) => {
       os: 'Standard OS',
       status: 'Failed',
       failureReason: 'Incorrect password'
-    });
-    saveDatabase();
+    };
+    await addLoginLog(failedLog);
 
     // Evaluate Brute Force threshold
     const recentFailedAttempts = loginLogs.filter(
@@ -1417,7 +1532,7 @@ app.post('/api/auth/login', (req, res) => {
 
   // Success login!
   user.lastLogin = new Date().toISOString();
-  loginLogs.unshift({
+  const successLog: LoginLog = {
     id: `log_${Date.now()}`,
     userId: user.id,
     username: user.username,
@@ -1428,9 +1543,17 @@ app.post('/api/auth/login', (req, res) => {
     os: 'Windows 11',
     status: 'Success',
     failureReason: null
-  });
+  };
   
-  saveDatabase();
+  if (adminDb) {
+    try {
+      await adminDb.collection('users').doc(user.id).update({ lastLogin: user.lastLogin });
+    } catch (err) {
+      console.error('Error updating lastLogin for user in Firestore:', err);
+    }
+  }
+
+  await addLoginLog(successLog);
   res.json({
     message: 'Authenticated successfully',
     user: {

@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all rule
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Allow read/write access to the application data collections
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    match /loginLogs/{logId} {
+      allow read, write: if true;
+    }
+
+    match /attackLogs/{logId} {
+      allow read, write: if true;
+    }
+
+    match /blockedIPs/{ipId} {
+      allow read, write: if true;
+    }
+
+    match /alerts/{alertId} {
+      allow read, write: if true;
+    }
+
+    match /reports/{reportId} {
+      allow read, write: if true;
+    }
+
+    match /settings/{settingId} {
+      allow read, write: if true;
+    }
+  }
+}

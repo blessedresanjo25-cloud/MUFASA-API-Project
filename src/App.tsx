@@ -565,8 +565,21 @@ export default function App() {
 
         <motion.div 
           initial={{ opacity: 0, y: 30, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
+          animate={{ 
+            opacity: 1, 
+            scale: 1,
+            y: [0, -14, 0]
+          }}
+          transition={{ 
+            opacity: { duration: 0.6, ease: "easeOut" },
+            scale: { duration: 0.6, ease: "easeOut" },
+            y: { 
+              duration: 3.5, 
+              repeat: Infinity, 
+              repeatType: "reverse", 
+              ease: "easeInOut" 
+            }
+          }}
           className="w-full max-w-md bg-slate-900/60 border border-slate-800/85 rounded-3xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.85)] p-8 backdrop-blur-xl relative z-10 hover:border-slate-800 transition-all duration-300"
         >
           {/* Main Logo Header */}

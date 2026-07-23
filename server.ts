@@ -59,11 +59,19 @@ let systemSettings: SystemSettings = {
   sessionTimeout: 30
 };
 
+// Promise timeout helper
+function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms))
+  ]);
+}
+
 // --- Firebase Admin Helpers ---
 async function getFirestoreUsers(): Promise<User[]> {
   if (adminDb) {
     try {
-      const snapshot = await adminDb.collection('users').get();
+      const snapshot = (await withTimeout(adminDb.collection('users').get(), 3000, 'Admin users fetch timed out')) as any;
       const dbUsers: User[] = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }) as User);
       if (dbUsers.length > 0) {
         users = dbUsers;
@@ -78,7 +86,7 @@ async function getFirestoreUsers(): Promise<User[]> {
 async function getFirestoreLoginLogs(): Promise<LoginLog[]> {
   if (adminDb) {
     try {
-      const snapshot = await adminDb.collection('loginLogs').get();
+      const snapshot = (await withTimeout(adminDb.collection('loginLogs').get(), 3000, 'Admin loginLogs fetch timed out')) as any;
       const dbLogs: LoginLog[] = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }) as LoginLog);
       if (dbLogs.length > 0) {
         dbLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -94,7 +102,7 @@ async function getFirestoreLoginLogs(): Promise<LoginLog[]> {
 async function addLoginLog(log: LoginLog) {
   if (adminDb) {
     try {
-      await adminDb.collection('loginLogs').doc(log.id).set(log);
+      await withTimeout(adminDb.collection('loginLogs').doc(log.id).set(log), 3000, 'Admin save log timed out');
     } catch (err) {
       console.error('Error saving login log to Firebase Admin Firestore:', err);
     }
@@ -156,14 +164,6 @@ function saveDatabase() {
   } catch (err) {
     console.error('Error saving database:', err);
   }
-}
-
-// Promise timeout helper
-function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms))
-  ]);
 }
 
 // Helper to load or seed state
@@ -1574,7 +1574,11 @@ app.post('/api/auth/login', async (req, res) => {
 
 async function startServer() {
   // Load database from Firestore/disk before starting server
-  await loadDatabase();
+  try {
+    await loadDatabase();
+  } catch (err) {
+    console.error('Error during loadDatabase:', err);
+  }
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

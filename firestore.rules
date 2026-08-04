@@ -6,7 +6,7 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Allow read/write access to the application data collections
+    // Allow access to the application data collections
     match /users/{userId} {
       allow read, write: if true;
     }

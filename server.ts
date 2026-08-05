@@ -177,58 +177,50 @@ function saveDatabase() {
 
 // Helper to load or seed state
 async function loadDatabase() {
-  const firebaseSuccess = initFirebase();
-  
-  // 1. Try loading users and loginLogs via Firebase Admin first if available
-  if (adminDb) {
+  // 1. First, load from local disk / seed synchronously so data is ready immediately
+  if (fs.existsSync(DB_FILE)) {
     try {
-      console.log('Firebase Admin detected. Loading users & login logs...');
-      await getFirestoreUsers();
-      await getFirestoreLoginLogs();
+      const raw = fs.readFileSync(DB_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      users = data.users || [];
+      loginLogs = data.loginLogs || [];
+      attackLogs = data.attackLogs || [];
+      blockedIPs = data.blockedIPs || [];
+      alerts = data.alerts || [];
+      reports = data.reports || [];
+      systemSettings = data.systemSettings || systemSettings;
+      console.log('Loaded initial database from disk successfully.');
     } catch (err) {
-      console.error('Error loading users/logs from Firebase Admin:', err);
+      console.error('Error reading DB_FILE:', err);
     }
   }
 
+  if (users.length === 0) {
+    await seedDatabase();
+  }
+
+  // 2. Safely sync from Firebase in the background with tight timeouts
+  const firebaseSuccess = initFirebase();
   if (firebaseSuccess && isFirebaseEnabled()) {
     try {
-      console.log('Attempting to load remaining database tables from Firebase Firestore...');
-      // Only load users if not already loaded by Admin
-      if (users.length === 0) {
-        const dbUsers = await withTimeout(getCollectionData<User>('users'), 3000, 'Firestore users fetch timed out');
-        if (dbUsers.length > 0) {
-          let updated = false;
-          users = dbUsers.map(u => {
-            if (!u.password) {
-              updated = true;
-              return {
-                ...u,
-                password: u.username === 'admin' ? bcrypt.hashSync('admin123', 10) : u.username === 'analyst_sarah' ? bcrypt.hashSync('sarah123', 10) : bcrypt.hashSync('user123', 10)
-              };
-            }
-            return u;
-          });
-          if (updated) {
-            saveDatabase();
-          }
-        }
-      }
+      console.log('Attempting to sync database tables from Firebase Firestore...');
+      const [dbUsers, dbSettings, dbLogs, dbAttacks, dbBlocks, dbAlerts, dbReports] = await Promise.all([
+        withTimeout(getCollectionData<User>('users'), 1500, 'Firestore users fetch timed out').catch(() => []),
+        withTimeout(getDocumentData<SystemSettings>('settings', 'systemSettings'), 1500, 'Firestore settings fetch timed out').catch(() => null),
+        withTimeout(getCollectionData<LoginLog>('loginLogs'), 1500, 'Firestore loginLogs fetch timed out').catch(() => []),
+        withTimeout(getCollectionData<AttackLog>('attackLogs'), 1500, 'Firestore attackLogs fetch timed out').catch(() => []),
+        withTimeout(getCollectionData<BlockedIP>('blockedIPs'), 1500, 'Firestore blockedIPs fetch timed out').catch(() => []),
+        withTimeout(getCollectionData<Alert>('alerts'), 1500, 'Firestore alerts fetch timed out').catch(() => []),
+        withTimeout(getCollectionData<Report>('reports'), 1500, 'Firestore reports fetch timed out').catch(() => [])
+      ]);
 
-      // Load system settings
-      const dbSettings = await withTimeout(getDocumentData<SystemSettings>('settings', 'systemSettings'), 3000, 'Firestore settings fetch timed out');
-      if (dbSettings) {
-        systemSettings = dbSettings;
-        console.log('Loaded system settings from Firestore.');
-      }
-
-      // Load remaining collections
-      if (loginLogs.length === 0) {
-        loginLogs = await withTimeout(getCollectionData<LoginLog>('loginLogs'), 3000, 'Firestore loginLogs fetch timed out');
-      }
-      attackLogs = await withTimeout(getCollectionData<AttackLog>('attackLogs'), 3000, 'Firestore attackLogs fetch timed out');
-      blockedIPs = await withTimeout(getCollectionData<BlockedIP>('blockedIPs'), 3000, 'Firestore blockedIPs fetch timed out');
-      alerts = await withTimeout(getCollectionData<Alert>('alerts'), 3000, 'Firestore alerts fetch timed out');
-      reports = await withTimeout(getCollectionData<Report>('reports'), 3000, 'Firestore reports fetch timed out');
+      if (dbUsers.length > 0) users = dbUsers;
+      if (dbSettings) systemSettings = dbSettings;
+      if (dbLogs.length > 0) loginLogs = dbLogs;
+      if (dbAttacks.length > 0) attackLogs = dbAttacks;
+      if (dbBlocks.length > 0) blockedIPs = dbBlocks;
+      if (dbAlerts.length > 0) alerts = dbAlerts;
+      if (dbReports.length > 0) reports = dbReports;
 
       // Sort logs by timestamp/date where appropriate
       loginLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -236,49 +228,11 @@ async function loadDatabase() {
       alerts.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       reports.sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime());
 
-      console.log('Loaded database tables successfully.');
-      if (users.length === 0) {
-        await seedDatabase();
-      }
-      return;
+      console.log('Synced database tables from Firebase Firestore successfully.');
     } catch (err) {
-      console.error('Error loading database from Firestore, falling back to local disk:', err);
+      console.warn('Error syncing database from Firestore, using local data:', err);
     }
   }
-
-  // Fallback to local file system
-  if (fs.existsSync(DB_FILE)) {
-    try {
-      const raw = fs.readFileSync(DB_FILE, 'utf-8');
-      const data = JSON.parse(raw);
-      const loadedUsers = data.users || [];
-      let updated = false;
-      users = loadedUsers.map((u: any) => {
-        if (!u.password) {
-          updated = true;
-          return {
-            ...u,
-            password: u.username === 'admin' ? bcrypt.hashSync('admin123', 10) : u.username === 'analyst_sarah' ? bcrypt.hashSync('sarah123', 10) : bcrypt.hashSync('user123', 10)
-          };
-        }
-        return u;
-      });
-      loginLogs = data.loginLogs || [];
-      attackLogs = data.attackLogs || [];
-      blockedIPs = data.blockedIPs || [];
-      alerts = data.alerts || [];
-      reports = data.reports || [];
-      systemSettings = data.systemSettings || systemSettings;
-      console.log('Loaded database from disk successfully.');
-      if (updated) {
-        saveDatabase();
-      }
-      return;
-    } catch (err) {
-      console.error('Error parsing database file, seeding instead:', err);
-    }
-  }
-  await seedDatabase();
 }
 
 // Generate realistic seeding logs over the last 7 days
@@ -618,10 +572,7 @@ function calculateThreatLevel(): 'Low' | 'Medium' | 'High' {
 // ==========================================
 
 // Calculate dynamic analytics data
-app.get('/api/analytics/stats', async (req, res) => {
-  await getFirestoreUsers();
-  await getFirestoreLoginLogs();
-
+app.get('/api/analytics/stats', (req, res) => {
   const score = calculateSecurityScore();
   const threat = calculateThreatLevel();
   const now = Date.now();
@@ -680,8 +631,7 @@ app.get('/api/analytics/stats', async (req, res) => {
 });
 
 // GET all dashboard data charts in structured series
-app.get('/api/analytics/charts', async (req, res) => {
-  await getFirestoreLoginLogs();
+app.get('/api/analytics/charts', (req, res) => {
   // 1. Success vs Failed logins pie
   const successfulLoginsCount = loginLogs.filter(l => l.status === 'Success').length;
   const failedLoginsCount = loginLogs.filter(l => l.status === 'Failed').length;
@@ -767,8 +717,7 @@ app.get('/api/analytics/charts', async (req, res) => {
 });
 
 // GET all logs (supports query filters)
-app.get('/api/logs', async (req, res) => {
-  await getFirestoreLoginLogs();
+app.get('/api/logs', (req, res) => {
   const { username, ipAddress, status, search, limit } = req.query;
   let filtered = [...loginLogs];
 
@@ -886,8 +835,7 @@ app.post('/api/settings', (req, res) => {
 });
 
 // GET users management
-app.get('/api/users', async (req, res) => {
-  await getFirestoreUsers();
+app.get('/api/users', (req, res) => {
   res.json(users);
 });
 
@@ -898,7 +846,6 @@ app.post('/api/users', async (req, res) => {
     return res.status(400).json({ error: 'All fields are required' });
   }
 
-  await getFirestoreUsers();
   const exists = users.find(u => u.username.toLowerCase() === username.toLowerCase() || u.email.toLowerCase() === email.toLowerCase());
   if (exists) {
     return res.status(400).json({ error: 'Username or email already exists' });
@@ -936,7 +883,6 @@ app.post('/api/users', async (req, res) => {
 // POST toggle user status
 app.post('/api/users/toggle-status', async (req, res) => {
   const { userId } = req.body;
-  await getFirestoreUsers();
   const user = users.find(u => u.id === userId);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
@@ -965,7 +911,6 @@ app.post('/api/users/toggle-status', async (req, res) => {
 // POST to reset/update user password
 app.post('/api/users/reset-password', async (req, res) => {
   const { userId, newPassword } = req.body;
-  await getFirestoreUsers();
   const user = users.find(u => u.id === userId);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
@@ -996,7 +941,6 @@ app.post('/api/users/reset-password', async (req, res) => {
 // POST to delete user identity
 app.post('/api/users/delete', async (req, res) => {
   const { userId } = req.body;
-  await getFirestoreUsers();
   const user = users.find(u => u.id === userId);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });

@@ -72,7 +72,7 @@ export default function App() {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   // Core application state
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'activity_logs' | 'attack_logs' | 'blocked_ips' | 'user_manager' | 'reports' | 'settings' | 'about'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulation' | 'activity_logs' | 'attack_logs' | 'blocked_ips' | 'user_manager' | 'reports' | 'settings' | 'about'>('dashboard');
   const [stats, setStats] = useState<SecurityStats | null>(null);
   const [chartsData, setChartsData] = useState<any>(null);
   const [loginLogsList, setLoginLogsList] = useState<LoginLog[]>([]);
@@ -82,6 +82,7 @@ export default function App() {
   const [alertsList, setAlertsList] = useState<Alert[]>([]);
   const [reportsList, setReportsList] = useState<Report[]>([]);
   const [settings, setSettings] = useState<SystemSettings | null>(null);
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
 
   // Filters state
   const [logsSearch, setLogsSearch] = useState('');
@@ -177,6 +178,7 @@ export default function App() {
       if (alertsData) setAlertsList(alertsData);
       if (reportsData) setReportsList(reportsData);
       if (settingsData) setSettings(settingsData);
+      setLastSynced(new Date());
     } catch (err) {
       console.error('Error refreshing system data:', err);
     }
@@ -756,6 +758,15 @@ export default function App() {
 
                 <button 
                   type="button"
+                  onClick={() => { setActiveTab('simulation'); setIsMobileMenuOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'simulation' ? 'bg-slate-800 text-white border-l-4 border-amber-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
+                >
+                  <Terminal className="w-4 h-4 shrink-0 text-amber-400" />
+                  Simulation Mode
+                </button>
+
+                <button 
+                  type="button"
                   onClick={() => { setActiveTab('blocked_ips'); setIsMobileMenuOpen(false); }}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'blocked_ips' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
                 >
@@ -830,6 +841,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-semibold text-slate-200 font-display uppercase tracking-wider">
               {activeTab === 'dashboard' && 'System Dashboard'}
+              {activeTab === 'simulation' && 'Security Simulation Sandbox'}
               {activeTab === 'activity_logs' && 'User Login Activity Audits'}
               {activeTab === 'attack_logs' && 'Security Intrusion Detection'}
               {activeTab === 'blocked_ips' && 'IP Banishment Protocols'}
@@ -850,20 +862,27 @@ export default function App() {
                   className="bg-slate-850 border border-slate-700/80 hover:bg-slate-800 rounded-xl p-2 flex items-center gap-2 text-xs font-medium text-amber-400 transition duration-150"
                 >
                   <AlertTriangle className="w-4 h-4 animate-bounce" />
-                  <span>{unreadAlertsCount} Unread Alerts</span>
+                  <span>{unreadAlertsCount} Unread Alert{unreadAlertsCount === 1 ? '' : 's'}</span>
                   <span className="text-[10px] text-slate-400 font-normal underline">(Mark Read)</span>
                 </button>
               </div>
             )}
 
-            {/* Quick manual refresh button */}
-            <button 
-              onClick={refreshAllData}
-              title="Manual Telemetry Refresh"
-              className="bg-slate-805 border border-slate-700 hover:bg-slate-800 rounded-xl p-2.5 text-slate-400 hover:text-white transition duration-150"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
+            {/* Sync timestamp and refresh button */}
+            <div className="flex items-center gap-2.5">
+              {lastSynced && (
+                <span className="text-[11px] font-mono text-slate-400 hidden md:inline-block">
+                  Last synced: <strong className="text-slate-200">{lastSynced.toLocaleTimeString()}</strong>
+                </span>
+              )}
+              <button 
+                onClick={refreshAllData}
+                title="Manual Telemetry Refresh"
+                className="bg-slate-805 border border-slate-700 hover:bg-slate-800 rounded-xl p-2.5 text-slate-400 hover:text-white transition duration-150 flex items-center gap-1.5"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </header>
 
@@ -900,7 +919,7 @@ export default function App() {
                       <p className="text-xs text-slate-300 mt-1 max-w-xl">
                         {stats.threatLevel === 'High' && 'Warning: Multiple severe attack patterns detected over the last 24 hours. Rate limiting and IP bans are being automatically enforced.'}
                         {stats.threatLevel === 'Medium' && 'Caution: Medium-severity anomalous brute force probes detected. Automated systems are holding connection gates securely.'}
-                        {stats.threatLevel === 'Low' && 'Healthy: Threat signatures remain quiet. MUFASA suite has blocked active anomalous bots and secured endpoints.'}
+                        {stats.threatLevel === 'Low' && 'No active threats detected. Recent anomalies were mitigated automatically.'}
                       </p>
                     </div>
                   </div>
@@ -916,7 +935,21 @@ export default function App() {
                     <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition-all duration-300" />
                     <div className="flex justify-between items-start">
                       <div>
-                        <span className="text-slate-400 text-xs font-mono uppercase tracking-wider block">Security Score</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-400 text-xs font-mono uppercase tracking-wider block">Security Score</span>
+                          <div className="group/tip relative inline-flex items-center cursor-help">
+                            <HelpCircle className="w-3.5 h-3.5 text-slate-500 hover:text-emerald-400 transition" />
+                            <div className="absolute top-full left-0 mt-2 hidden group-hover/tip:block w-64 p-3 bg-slate-950 border border-slate-700 rounded-xl text-[10px] text-slate-300 font-normal leading-normal shadow-2xl z-50 pointer-events-none">
+                              <div className="font-semibold text-emerald-400 mb-1">Score Calculation Matrix:</div>
+                              <ul className="space-y-1 font-mono text-[10px] text-slate-300">
+                                <li>• Baseline Score: <span className="text-white">100 pts</span></li>
+                                <li>• Active IP Bans: <span className="text-red-400">-15 pts each</span></li>
+                                <li>• Anomalous Alerts (24h): <span className="text-amber-400">-5 pts each</span></li>
+                                <li>• Auth Failures (24h): <span className="text-yellow-400">-2 pts each</span></li>
+                              </ul>
+                            </div>
+                          </div>
+                        </div>
                         <span className="text-3xl font-display font-bold text-white block mt-1.5">{stats.securityScore} <span className="text-xs text-slate-500 font-normal">/ 100</span></span>
                       </div>
                       <div className="p-2.5 bg-emerald-500/15 text-emerald-400 rounded-xl">
@@ -946,7 +979,7 @@ export default function App() {
                       </div>
                     </div>
                     <div className="mt-4 text-[10px] text-slate-400 font-mono flex items-center justify-between">
-                      <span>Currently Isolated Blacklist</span>
+                      <span>Currently Isolated Blocklist</span>
                       <span className="text-slate-500">Live Firewall</span>
                     </div>
                   </div>
@@ -985,129 +1018,14 @@ export default function App() {
                       </div>
                     </div>
                     <div className="mt-4 text-[10px] text-slate-400 font-mono flex items-center justify-between">
-                      <span>Most Targeted: <strong className="text-slate-200">{stats.mostTargetedUser}</strong></span>
+                      {stats.totalSuspiciousActivities > 0 && stats.mostTargetedUser ? (
+                        <span>Most Targeted: <strong className="text-slate-200">{stats.mostTargetedUser}</strong></span>
+                      ) : (
+                        <span className="text-slate-500 italic">Most Targeted: None</span>
+                      )}
+                      <span className="text-slate-500">24H Window</span>
                     </div>
                   </div>
-                </div>
-              )}
-
-              {/* SIMULATION ATTACK SANDBOX - PRESENTATION COMPONENT */}
-              {isAdmin && (
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
-                  
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-850">
-                    <div>
-                      <h3 className="text-base font-bold text-white flex items-center gap-2">
-                        <Terminal className="w-5 h-5 text-amber-400 animate-pulse" />
-                        MUFASA Security Simulation Sandbox
-                      </h3>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Trigger active credential attacks live on the server to immediately test detection alerts, threat score degradation, and automatic IP blocking.
-                      </p>
-                    </div>
-                    <span className="text-[10px] text-amber-400 border border-amber-500/30 bg-amber-500/10 py-1 px-2 rounded-full font-mono font-semibold self-start md:self-center">
-                      ★ DIPLOMA PRESENTATION MODE ACTIVE
-                    </span>
-                  </div>
-
-                  {/* Simulator Control Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mt-5">
-                    {/* Brute Force Trigger */}
-                    <div className="bg-slate-850 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-                      <div>
-                        <span className="font-semibold text-sm text-red-400 block">💥 Brute Force Attack</span>
-                        <p className="text-[11px] text-slate-400 mt-1 leading-normal">
-                          Fires 5 rapid failed login tries in 5 seconds on administrator login routes from a mock host IP.
-                        </p>
-                      </div>
-                      <button 
-                        type="button"
-                        onClick={() => runSimulation('brute-force')}
-                        disabled={activeSimulation !== null}
-                        className="mt-4 w-full bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-semibold py-2 px-3 rounded-lg border border-red-500/30 transition duration-150 flex items-center justify-center gap-1.5"
-                      >
-                        {activeSimulation === 'brute-force' ? (
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        ) : 'Launch Attack'}
-                      </button>
-                    </div>
-
-                    {/* Credential Stuffing Trigger */}
-                    <div className="bg-slate-850 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-                      <div>
-                        <span className="font-semibold text-sm text-pink-400 block">🤖 Credential Stuffing</span>
-                        <p className="text-[11px] text-slate-400 mt-1 leading-normal">
-                          Attempts to authenticate 6 distinct usernames within seconds, simulating an automated password bot dictionary.
-                        </p>
-                      </div>
-                      <button 
-                        type="button"
-                        onClick={() => runSimulation('credential-stuffing')}
-                        disabled={activeSimulation !== null}
-                        className="mt-4 w-full bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 text-xs font-semibold py-2 px-3 rounded-lg border border-pink-500/30 transition duration-150 flex items-center justify-center gap-1.5"
-                      >
-                        {activeSimulation === 'credential-stuffing' ? (
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        ) : 'Launch Attack'}
-                      </button>
-                    </div>
-
-                    {/* Rate Limit Trigger */}
-                    <div className="bg-slate-850 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-                      <div>
-                        <span className="font-semibold text-sm text-amber-400 block">⚡ Rate Limit Inundation</span>
-                        <p className="text-[11px] text-slate-400 mt-1 leading-normal">
-                          Generates 185 simulated page requests instantly from a single IP, overwhelming standard API request gates.
-                        </p>
-                      </div>
-                      <button 
-                        type="button"
-                        onClick={() => runSimulation('rate-limit')}
-                        disabled={activeSimulation !== null}
-                        className="mt-4 w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-semibold py-2 px-3 rounded-lg border border-amber-500/30 transition duration-150 flex items-center justify-center gap-1.5"
-                      >
-                        {activeSimulation === 'rate-limit' ? (
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        ) : 'Launch Attack'}
-                      </button>
-                    </div>
-
-                    {/* Banned IP Attempt */}
-                    <div className="bg-slate-850 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-                      <div>
-                        <span className="font-semibold text-sm text-blue-400 block">🚫 Blocked IP Attempt</span>
-                        <p className="text-[11px] text-slate-400 mt-1 leading-normal">
-                          Simulates an unauthorized login attempt originating from an IP already placed on the system blacklist.
-                        </p>
-                      </div>
-                      <button 
-                        type="button"
-                        onClick={() => runSimulation('blocked-ip')}
-                        disabled={activeSimulation !== null}
-                        className="mt-4 w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs font-semibold py-2 px-3 rounded-lg border border-blue-500/30 transition duration-150 flex items-center justify-center gap-1.5"
-                      >
-                        {activeSimulation === 'blocked-ip' ? (
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        ) : 'Launch Attack'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Simulation output console */}
-                  {simulationResponse && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="mt-4 p-3.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-300"
-                    >
-                      <div className="flex items-center gap-2 text-emerald-400 font-bold mb-1.5">
-                        <CheckCircle className="w-4 h-4 shrink-0" />
-                        <span>MUFASA INTRUSION INTERFACES LOGGED SUCCESS:</span>
-                      </div>
-                      <p className="leading-relaxed whitespace-pre-line">{simulationResponse}</p>
-                    </motion.div>
-                  )}
                 </div>
               )}
 
@@ -1341,6 +1259,139 @@ export default function App() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+
+          {/* VIEW: SECURITY SIMULATION SANDBOX */}
+          {activeTab === 'simulation' && (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+              
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Terminal className="w-5 h-5 text-amber-400 animate-pulse" />
+                    MUFASA Security Simulation Sandbox
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Trigger active credential attack scenarios live on the server to test detection alerts, threat score degradation, and automated IP blocking protocols.
+                  </p>
+                </div>
+                <span className="text-[10px] text-amber-400 border border-amber-500/30 bg-amber-500/10 py-1 px-2.5 rounded-full font-mono font-semibold self-start md:self-center">
+                  ★ DIPLOMA PRESENTATION MODE ACTIVE
+                </span>
+              </div>
+
+              {/* Simulator Control Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mt-6">
+                {/* Brute Force Trigger */}
+                <div className="bg-slate-850 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-sm text-red-400 block">💥 Brute Force Attack</span>
+                      <span className="text-[9px] font-mono font-bold bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30">CRITICAL</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                      Fires 5 rapid failed login tries in 5 seconds on administrator login routes from a mock host IP.
+                    </p>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => runSimulation('brute-force')}
+                    disabled={activeSimulation !== null}
+                    className="mt-5 w-full bg-red-600 hover:bg-red-500 text-white text-xs font-semibold py-2.5 px-3 rounded-lg border border-red-500/50 shadow-md shadow-red-600/20 transition duration-150 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    {activeSimulation === 'brute-force' ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : 'Simulate Brute Force'}
+                  </button>
+                </div>
+
+                {/* Credential Stuffing Trigger */}
+                <div className="bg-slate-850 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-sm text-orange-400 block">🤖 Credential Stuffing</span>
+                      <span className="text-[9px] font-mono font-bold bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded border border-orange-500/30">HIGH</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                      Attempts to authenticate 6 distinct usernames within seconds, simulating an automated password bot dictionary.
+                    </p>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => runSimulation('credential-stuffing')}
+                    disabled={activeSimulation !== null}
+                    className="mt-5 w-full bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold py-2.5 px-3 rounded-lg border border-orange-500/50 shadow-md shadow-orange-600/20 transition duration-150 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    {activeSimulation === 'credential-stuffing' ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : 'Run Credential Stuffing Test'}
+                  </button>
+                </div>
+
+                {/* Rate Limit Trigger */}
+                <div className="bg-slate-850 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-sm text-amber-400 block">⚡ Rate Limit Inundation</span>
+                      <span className="text-[9px] font-mono font-bold bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/30">MEDIUM</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                      Generates 185 simulated page requests instantly from a single IP, overwhelming standard API request gates.
+                    </p>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => runSimulation('rate-limit')}
+                    disabled={activeSimulation !== null}
+                    className="mt-5 w-full bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-bold py-2.5 px-3 rounded-lg border border-amber-400/50 shadow-md shadow-amber-600/20 transition duration-150 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    {activeSimulation === 'rate-limit' ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : 'Test Rate Limiting'}
+                  </button>
+                </div>
+
+                {/* Blocked IP Attempt */}
+                <div className="bg-slate-850 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-sm text-blue-400 block">🚫 Blocked IP Attempt</span>
+                      <span className="text-[9px] font-mono font-bold bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30">LOW</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                      Simulates an unauthorized login attempt originating from an IP already placed on the system blocklist.
+                    </p>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => runSimulation('blocked-ip')}
+                    disabled={activeSimulation !== null}
+                    className="mt-5 w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold py-2.5 px-3 rounded-lg border border-blue-500/50 shadow-md shadow-blue-600/20 transition duration-150 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    {activeSimulation === 'blocked-ip' ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : 'Simulate Blocked IP Access'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Simulation output console */}
+              {simulationResponse && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-6 p-4 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-300 shadow-xl"
+                >
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold mb-2">
+                    <CheckCircle className="w-4 h-4 shrink-0" />
+                    <span>MUFASA INTRUSION INTERFACES LOGGED SUCCESS:</span>
+                  </div>
+                  <p className="leading-relaxed whitespace-pre-line text-slate-300">{simulationResponse}</p>
+                </motion.div>
+              )}
             </div>
           )}
 
@@ -1641,7 +1692,7 @@ export default function App() {
                   <div>
                     <h3 className="text-base font-bold text-white flex items-center gap-2">
                       <Globe className="w-5 h-5 text-red-400 animate-pulse" />
-                      Active IP Firewall Blacklist
+                      Active IP Firewall Blocklist
                     </h3>
                     <p className="text-xs text-slate-400 mt-1">
                       Systems currently rejected access at the application layer automatically.
@@ -1826,7 +1877,7 @@ export default function App() {
                             <div className="flex items-center gap-1.5">
                               <span className="min-w-[65px] inline-block font-medium">
                                 {visiblePasswords[u.id] 
-                                  ? (u.password || (u.username === 'admin' ? 'admin123' : u.username === 'analyst_sarah' ? 'sarah123' : 'user123')) 
+                                  ? (u.rawPassword || (u.password && !u.password.startsWith('$2') ? u.password : (u.username === 'admin' ? 'admin123' : u.username === 'analyst_sarah' ? 'sarah123' : u.username === 'john_developer' ? 'user123' : u.username === 'mary_accountant' ? 'user123' : 'user123'))) 
                                   : '••••••••'}
                               </span>
                               <button 
@@ -2139,7 +2190,7 @@ export default function App() {
                       onChange={(e) => setSettings({ ...settings, ipBlockingDuration: Number(e.target.value) })}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500"
                     />
-                    <span className="text-[10px] text-slate-500 mt-1 block">Period a detected attacker IP address is blacklisted in seconds.</span>
+                    <span className="text-[10px] text-slate-500 mt-1 block">Period a detected attacker IP address is blocklisted in seconds.</span>
                   </div>
                 </div>
 

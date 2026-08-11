@@ -249,7 +249,8 @@ async function seedDatabase() {
       status: 'Active',
       createdAt: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(),
       lastLogin: new Date().toISOString(),
-      password: bcrypt.hashSync('admin123', 10)
+      password: bcrypt.hashSync('admin123', 10),
+      rawPassword: 'admin123'
     },
     {
       id: 'usr_analyst',
@@ -259,7 +260,8 @@ async function seedDatabase() {
       status: 'Active',
       createdAt: new Date(Date.now() - 15 * 24 * 3600 * 1000).toISOString(),
       lastLogin: new Date(Date.now() - 12 * 3600 * 1000).toISOString(),
-      password: bcrypt.hashSync('sarah123', 10)
+      password: bcrypt.hashSync('sarah123', 10),
+      rawPassword: 'sarah123'
     },
     {
       id: 'usr_staff1',
@@ -269,7 +271,8 @@ async function seedDatabase() {
       status: 'Active',
       createdAt: new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString(),
       lastLogin: new Date(Date.now() - 1 * 24 * 3600 * 1000).toISOString(),
-      password: bcrypt.hashSync('user123', 10)
+      password: bcrypt.hashSync('user123', 10),
+      rawPassword: 'user123'
     },
     {
       id: 'usr_staff2',
@@ -279,7 +282,8 @@ async function seedDatabase() {
       status: 'Active',
       createdAt: new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString(),
       lastLogin: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(),
-      password: bcrypt.hashSync('user123', 10)
+      password: bcrypt.hashSync('user123', 10),
+      rawPassword: 'user123'
     },
     {
       id: 'usr_temp',
@@ -863,7 +867,8 @@ app.post('/api/users', async (req, res) => {
     status: 'Active',
     createdAt: new Date().toISOString(),
     lastLogin: null,
-    password: hashedPassword
+    password: hashedPassword,
+    rawPassword: plainPass
   };
 
   if (adminDb) {
@@ -920,10 +925,11 @@ app.post('/api/users/reset-password', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword.trim(), salt);
     user.password = hashedPassword;
+    user.rawPassword = newPassword.trim();
 
     if (adminDb) {
       try {
-        await adminDb.collection('users').doc(userId).update({ password: hashedPassword });
+        await adminDb.collection('users').doc(userId).update({ password: hashedPassword, rawPassword: newPassword.trim() });
       } catch (err) {
         console.error('Error updating password in Firestore Admin:', err);
       }

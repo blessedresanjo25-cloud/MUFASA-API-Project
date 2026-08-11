@@ -12,6 +12,7 @@ export interface User {
   createdAt: string;
   lastLogin: string | null;
   password?: string;
+  rawPassword?: string;
 }
 
 export interface LoginLog {

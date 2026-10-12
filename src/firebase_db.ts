@@ -31,6 +31,18 @@ interface FirebaseConfig {
 
 let firebaseApp: FirebaseApp | null = null;
 let db: Firestore | null = null;
+let webDbDisabled = false;
+
+function isPermissionError(err: any): boolean {
+  if (!err) return false;
+  const msg = (err.message || String(err)).toLowerCase();
+  return (
+    err.code === 7 ||
+    err.code === 'permission-denied' ||
+    msg.includes('permission') ||
+    msg.includes('permission_denied')
+  );
+}
 
 // Load config from file or environment variables
 function getFirebaseConfig(): FirebaseConfig | null {
@@ -128,15 +140,26 @@ export function initFirebase(): boolean {
 }
 
 export function isFirebaseEnabled(): boolean {
-  return db !== null;
+  return db !== null && !webDbDisabled;
+}
+
+export function isFirebaseWebDisabled(): boolean {
+  return webDbDisabled;
+}
+
+export function disableFirebaseWeb(reason?: string): void {
+  if (!webDbDisabled) {
+    webDbDisabled = true;
+    console.warn(`[Firestore Web SDK] Permissions unavailable (${reason || 'permission-denied'}). Seamlessly switching to local database storage.`);
+  }
 }
 
 /**
  * Fetch all documents from a Firestore collection
  */
 export async function getCollectionData<T>(collectionName: string): Promise<T[]> {
-  if (!db) {
-    throw new Error('Firebase Firestore is not initialized');
+  if (!db || webDbDisabled) {
+    return [];
   }
 
   try {
@@ -147,8 +170,12 @@ export async function getCollectionData<T>(collectionName: string): Promise<T[]>
       items.push({ id: doc.id, ...doc.data() } as T);
     });
     return items;
-  } catch (err) {
-    console.error(`Error getting collection ${collectionName} from Firestore:`, err);
+  } catch (err: any) {
+    if (isPermissionError(err)) {
+      disableFirebaseWeb(err?.message || 'insufficient permissions');
+      return [];
+    }
+    console.warn(`Firestore getCollectionData (${collectionName}):`, err?.message || err);
     throw err;
   }
 }
@@ -157,8 +184,8 @@ export async function getCollectionData<T>(collectionName: string): Promise<T[]>
  * Fetch a single document from a collection
  */
 export async function getDocumentData<T>(collectionName: string, docId: string): Promise<T | null> {
-  if (!db) {
-    throw new Error('Firebase Firestore is not initialized');
+  if (!db || webDbDisabled) {
+    return null;
   }
 
   try {
@@ -168,8 +195,12 @@ export async function getDocumentData<T>(collectionName: string, docId: string):
       return { id: docSnap.id, ...docSnap.data() } as T;
     }
     return null;
-  } catch (err) {
-    console.error(`Error getting document ${collectionName}/${docId} from Firestore:`, err);
+  } catch (err: any) {
+    if (isPermissionError(err)) {
+      disableFirebaseWeb(err?.message || 'insufficient permissions');
+      return null;
+    }
+    console.warn(`Firestore getDocumentData (${collectionName}/${docId}):`, err?.message || err);
     throw err;
   }
 }
@@ -178,8 +209,8 @@ export async function getDocumentData<T>(collectionName: string, docId: string):
  * Save a single document to Firestore
  */
 export async function saveDocument(collectionName: string, docId: string, data: any): Promise<void> {
-  if (!db) {
-    throw new Error('Firebase Firestore is not initialized');
+  if (!db || webDbDisabled) {
+    return;
   }
 
   try {
@@ -187,8 +218,12 @@ export async function saveDocument(collectionName: string, docId: string, data: 
     const { id, ...docData } = data;
     const docRef = doc(db, collectionName, docId);
     await setDoc(docRef, docData, { merge: true });
-  } catch (err) {
-    console.error(`Error saving document ${collectionName}/${docId} to Firestore:`, err);
+  } catch (err: any) {
+    if (isPermissionError(err)) {
+      disableFirebaseWeb(err?.message || 'insufficient permissions');
+      return;
+    }
+    console.warn(`Firestore saveDocument (${collectionName}/${docId}):`, err?.message || err);
     throw err;
   }
 }
@@ -197,8 +232,8 @@ export async function saveDocument(collectionName: string, docId: string, data: 
  * Synchronize a full collection to Firestore using Batch Writes
  */
 export async function syncCollection<T extends { id: string }>(collectionName: string, items: T[]): Promise<void> {
-  if (!db) {
-    throw new Error('Firebase Firestore is not initialized');
+  if (!db || webDbDisabled) {
+    return;
   }
 
   if (items.length === 0) return;
@@ -218,8 +253,12 @@ export async function syncCollection<T extends { id: string }>(collectionName: s
 
       await batch.commit();
     }
-  } catch (err) {
-    console.error(`Error syncing collection ${collectionName} to Firestore:`, err);
+  } catch (err: any) {
+    if (isPermissionError(err)) {
+      disableFirebaseWeb(err?.message || 'insufficient permissions');
+      return;
+    }
+    console.warn(`Firestore syncCollection (${collectionName}):`, err?.message || err);
     throw err;
   }
 }
@@ -228,15 +267,19 @@ export async function syncCollection<T extends { id: string }>(collectionName: s
  * Delete a document from a Firestore collection
  */
 export async function deleteDocument(collectionName: string, docId: string): Promise<void> {
-  if (!db) {
-    throw new Error('Firebase Firestore is not initialized');
+  if (!db || webDbDisabled) {
+    return;
   }
 
   try {
     const docRef = doc(db, collectionName, docId);
     await deleteDoc(docRef);
-  } catch (err) {
-    console.error(`Error deleting document ${collectionName}/${docId} from Firestore:`, err);
+  } catch (err: any) {
+    if (isPermissionError(err)) {
+      disableFirebaseWeb(err?.message || 'insufficient permissions');
+      return;
+    }
+    console.warn(`Firestore deleteDocument (${collectionName}/${docId}):`, err?.message || err);
     throw err;
   }
 }

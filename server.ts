@@ -21,6 +21,7 @@ import {
 import {
   initFirebase,
   isFirebaseEnabled,
+  disableFirebaseWeb,
   getCollectionData,
   getDocumentData,
   saveDocument,
@@ -28,9 +29,9 @@ import {
   deleteDocument
 } from './src/firebase_db';
 
-// Import Firebase Admin DB and bcrypt
+// Import Firebase Admin DB, bcrypt, and service account info
 // @ts-ignore
-import { db as adminDb } from './firebase.js';
+import { db as adminDb, app as adminApp, serviceAccount } from './firebase.js';
 import bcrypt from 'bcryptjs';
 
 const app = express();
@@ -38,12 +39,17 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Security HTTP Headers
+// Security & CORS HTTP Headers
 app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
   next();
 });
 
@@ -76,47 +82,115 @@ function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Prom
   ]);
 }
 
+// Deduplicate array of objects by id property
+function deduplicateById<T extends { id: string }>(items: T[]): T[] {
+  const map = new Map<string, T>();
+  items.forEach(item => {
+    if (item && item.id) {
+      map.set(item.id, item);
+    }
+  });
+  return Array.from(map.values());
+}
+
+// Track whether adminDb has experienced permission errors so we can avoid spamming failed calls
+let adminDbDisabled = false;
+
 // --- Firebase Admin Helpers ---
 async function getFirestoreUsers(): Promise<User[]> {
-  if (adminDb) {
+  if (adminDb && !adminDbDisabled) {
     try {
-      const snapshot = (await withTimeout(adminDb.collection('users').get(), 3000, 'Admin users fetch timed out')) as any;
+      const snapshot = (await withTimeout(adminDb.collection('system_users').get(), 3000, 'Admin users fetch timed out')) as any;
       const dbUsers: User[] = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }) as User);
       if (dbUsers.length > 0) {
-        users = dbUsers;
+        users = deduplicateById(dbUsers);
+        return users;
       }
-    } catch (err) {
-      console.error('Error fetching users from Firebase Admin Firestore:', err);
+    } catch (err: any) {
+      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
+        adminDbDisabled = true;
+        console.warn('Firebase Admin lacks Firestore IAM permissions. Seamlessly falling back to Firebase Web SDK.');
+      } else {
+        console.warn('Error fetching system_users from Firebase Admin Firestore:', err?.message || err);
+      }
+    }
+  }
+
+  if (isFirebaseEnabled()) {
+    try {
+      const dbUsers = await withTimeout(getCollectionData<User>('system_users'), 3000, 'Firestore system_users fetch timed out');
+      if (dbUsers && dbUsers.length > 0) {
+        users = deduplicateById(dbUsers);
+      }
+    } catch (err: any) {
+      if (err?.code === 7 || err?.code === 'permission-denied' || err?.message?.includes('permission') || err?.message?.includes('PERMISSION_DENIED')) {
+        disableFirebaseWeb('system_users');
+      } else {
+        console.warn('Error fetching system_users from Firestore Web SDK:', err?.message || err);
+      }
     }
   }
   return users;
 }
 
 async function getFirestoreLoginLogs(): Promise<LoginLog[]> {
-  if (adminDb) {
+  if (adminDb && !adminDbDisabled) {
     try {
       const snapshot = (await withTimeout(adminDb.collection('loginLogs').get(), 3000, 'Admin loginLogs fetch timed out')) as any;
       const dbLogs: LoginLog[] = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }) as LoginLog);
       if (dbLogs.length > 0) {
         dbLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-        loginLogs = dbLogs;
+        loginLogs = deduplicateById(dbLogs);
+        return loginLogs;
       }
-    } catch (err) {
-      console.error('Error fetching login logs from Firebase Admin Firestore:', err);
+    } catch (err: any) {
+      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
+        adminDbDisabled = true;
+      } else {
+        console.warn('Error fetching login logs from Firebase Admin Firestore:', err?.message || err);
+      }
+    }
+  }
+
+  if (isFirebaseEnabled()) {
+    try {
+      const dbLogs = await withTimeout(getCollectionData<LoginLog>('loginLogs'), 3000, 'Firestore loginLogs fetch timed out');
+      if (dbLogs && dbLogs.length > 0) {
+        dbLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        loginLogs = deduplicateById(dbLogs);
+      }
+    } catch (err: any) {
+      if (err?.code === 7 || err?.code === 'permission-denied' || err?.message?.includes('permission') || err?.message?.includes('PERMISSION_DENIED')) {
+        disableFirebaseWeb('loginLogs');
+      } else {
+        console.warn('Error fetching login logs from Firestore Web SDK:', err?.message || err);
+      }
     }
   }
   return loginLogs;
 }
 
 async function addLoginLog(log: LoginLog) {
-  if (adminDb) {
+  let adminSaved = false;
+  if (adminDb && !adminDbDisabled) {
     try {
       await withTimeout(adminDb.collection('loginLogs').doc(log.id).set(log), 3000, 'Admin save log timed out');
-    } catch (err) {
-      console.error('Error saving login log to Firebase Admin Firestore:', err);
+      adminSaved = true;
+    } catch (err: any) {
+      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
+        adminDbDisabled = true;
+      }
     }
   }
+
+  if (!adminSaved && isFirebaseEnabled()) {
+    saveDocument('loginLogs', log.id, log).catch(err => {
+      console.warn('Background log save to Firestore Web SDK:', err?.message || err);
+    });
+  }
+
   loginLogs.unshift(log);
+  loginLogs = deduplicateById(loginLogs);
   saveDatabase();
 }
 
@@ -142,32 +216,49 @@ function getGeminiClient(): GoogleGenAI | null {
 // Helper to save state to disk & Firestore
 function saveDatabase() {
   try {
+    const cleanUsers = deduplicateById(users.map(({ rawPassword, ...u }: any) => u));
     const data = {
-      users,
-      loginLogs,
-      attackLogs,
-      blockedIPs,
-      alerts,
-      reports,
+      users: cleanUsers,
+      loginLogs: deduplicateById(loginLogs),
+      attackLogs: deduplicateById(attackLogs),
+      blockedIPs: deduplicateById(blockedIPs),
+      alerts: deduplicateById(alerts),
+      reports: deduplicateById(reports),
       systemSettings
     };
     // Always backup to local disk
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+    } catch (e) {
+      console.error('Error writing DB_FILE:', e);
+    }
+
+    if (adminDb && !adminDbDisabled) {
+      cleanUsers.forEach(async (u: any) => {
+        try {
+          await adminDb.collection('system_users').doc(u.id).set(u, { merge: true });
+        } catch (err: any) {
+          if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
+            adminDbDisabled = true;
+          }
+        }
+      });
+    }
     
     // If Firebase is enabled, sync to Firestore asynchronously
     if (isFirebaseEnabled()) {
       Promise.all([
-        syncCollection('users', users),
-        syncCollection('loginLogs', loginLogs),
-        syncCollection('attackLogs', attackLogs),
-        syncCollection('blockedIPs', blockedIPs),
-        syncCollection('alerts', alerts),
-        syncCollection('reports', reports),
+        syncCollection('system_users', cleanUsers),
+        syncCollection('loginLogs', deduplicateById(loginLogs)),
+        syncCollection('attackLogs', deduplicateById(attackLogs)),
+        syncCollection('blockedIPs', deduplicateById(blockedIPs)),
+        syncCollection('alerts', deduplicateById(alerts)),
+        syncCollection('reports', deduplicateById(reports)),
         saveDocument('settings', 'systemSettings', systemSettings)
       ]).then(() => {
         console.log('Database changes successfully synchronized with Firebase Firestore.');
       }).catch(err => {
-        console.error('Error synchronizing changes with Firebase Firestore:', err);
+        console.warn('Syncing changes with Firebase Firestore:', err?.message || err);
       });
     }
   } catch (err) {
@@ -175,19 +266,19 @@ function saveDatabase() {
   }
 }
 
-// Helper to load or seed state
+// Helper to load or seed state locally and immediately
 async function loadDatabase() {
-  // 1. First, load from local disk / seed synchronously so data is ready immediately
+  // 1. First, load from local disk if available
   if (fs.existsSync(DB_FILE)) {
     try {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
       const data = JSON.parse(raw);
-      users = data.users || [];
-      loginLogs = data.loginLogs || [];
-      attackLogs = data.attackLogs || [];
-      blockedIPs = data.blockedIPs || [];
-      alerts = data.alerts || [];
-      reports = data.reports || [];
+      users = deduplicateById(data.users || []);
+      loginLogs = deduplicateById(data.loginLogs || []);
+      attackLogs = deduplicateById(data.attackLogs || []);
+      blockedIPs = deduplicateById(data.blockedIPs || []);
+      alerts = deduplicateById(data.alerts || []);
+      reports = deduplicateById(data.reports || []);
       systemSettings = data.systemSettings || systemSettings;
       console.log('Loaded initial database from disk successfully.');
     } catch (err) {
@@ -198,14 +289,39 @@ async function loadDatabase() {
   if (users.length === 0) {
     await seedDatabase();
   }
+}
 
-  // 2. Safely sync from Firebase in the background with tight timeouts
+// Background sync with Firestore so startup is instantaneous
+async function syncWithCloudDatabase() {
+  // Startup check for Admin DB initialization & Project ID
+  if (adminDb && serviceAccount) {
+    const projId = serviceAccount.project_id || serviceAccount.projectId || 'unknown';
+    console.log(`[Startup Check] Firebase Admin DB initialized successfully via secret file. Connected Project ID: "${projId}".`);
+  } else if (adminDb) {
+    const projId = adminApp?.options?.projectId || (adminApp?.options?.credential as any)?.projectId || 'unknown';
+    console.log(`[Startup Check] Firebase Admin DB initialized successfully. Connected Project ID: "${projId}".`);
+  } else {
+    console.log('[Startup Check] Firebase Admin DB is NOT initialized (adminDb is null, service account file /etc/secrets/firebase-service-account.json not detected).');
+  }
+
+  // 1. Fetch from Firebase Admin if active
+  if (adminDb && !adminDbDisabled) {
+    try {
+      await getFirestoreUsers();
+      await getFirestoreLoginLogs();
+      console.log('Synced system_users and login logs from Firebase Admin Firestore.');
+    } catch (err) {
+      console.warn('Error fetching from adminDb:', err);
+    }
+  }
+
+  // 2. Safely sync from Firebase Client SDK in the background with tight timeouts
   const firebaseSuccess = initFirebase();
   if (firebaseSuccess && isFirebaseEnabled()) {
     try {
       console.log('Attempting to sync database tables from Firebase Firestore...');
       const [dbUsers, dbSettings, dbLogs, dbAttacks, dbBlocks, dbAlerts, dbReports] = await Promise.all([
-        withTimeout(getCollectionData<User>('users'), 1500, 'Firestore users fetch timed out').catch(() => []),
+        withTimeout(getCollectionData<User>('system_users'), 1500, 'Firestore system_users fetch timed out').catch(() => []),
         withTimeout(getDocumentData<SystemSettings>('settings', 'systemSettings'), 1500, 'Firestore settings fetch timed out').catch(() => null),
         withTimeout(getCollectionData<LoginLog>('loginLogs'), 1500, 'Firestore loginLogs fetch timed out').catch(() => []),
         withTimeout(getCollectionData<AttackLog>('attackLogs'), 1500, 'Firestore attackLogs fetch timed out').catch(() => []),
@@ -214,13 +330,13 @@ async function loadDatabase() {
         withTimeout(getCollectionData<Report>('reports'), 1500, 'Firestore reports fetch timed out').catch(() => [])
       ]);
 
-      if (dbUsers.length > 0) users = dbUsers;
+      if (dbUsers.length > 0) users = deduplicateById([...users, ...dbUsers]);
       if (dbSettings) systemSettings = dbSettings;
-      if (dbLogs.length > 0) loginLogs = dbLogs;
-      if (dbAttacks.length > 0) attackLogs = dbAttacks;
-      if (dbBlocks.length > 0) blockedIPs = dbBlocks;
-      if (dbAlerts.length > 0) alerts = dbAlerts;
-      if (dbReports.length > 0) reports = dbReports;
+      if (dbLogs.length > 0) loginLogs = deduplicateById([...loginLogs, ...dbLogs]);
+      if (dbAttacks.length > 0) attackLogs = deduplicateById([...attackLogs, ...dbAttacks]);
+      if (dbBlocks.length > 0) blockedIPs = deduplicateById([...blockedIPs, ...dbBlocks]);
+      if (dbAlerts.length > 0) alerts = deduplicateById([...alerts, ...dbAlerts]);
+      if (dbReports.length > 0) reports = deduplicateById([...reports, ...dbReports]);
 
       // Sort logs by timestamp/date where appropriate
       loginLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -249,8 +365,7 @@ async function seedDatabase() {
       status: 'Active',
       createdAt: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(),
       lastLogin: new Date().toISOString(),
-      password: bcrypt.hashSync('admin123', 10),
-      rawPassword: 'admin123'
+      password: bcrypt.hashSync('admin123', 10)
     },
     {
       id: 'usr_analyst',
@@ -260,8 +375,7 @@ async function seedDatabase() {
       status: 'Active',
       createdAt: new Date(Date.now() - 15 * 24 * 3600 * 1000).toISOString(),
       lastLogin: new Date(Date.now() - 12 * 3600 * 1000).toISOString(),
-      password: bcrypt.hashSync('sarah123', 10),
-      rawPassword: 'sarah123'
+      password: bcrypt.hashSync('sarah123', 10)
     },
     {
       id: 'usr_staff1',
@@ -271,8 +385,7 @@ async function seedDatabase() {
       status: 'Active',
       createdAt: new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString(),
       lastLogin: new Date(Date.now() - 1 * 24 * 3600 * 1000).toISOString(),
-      password: bcrypt.hashSync('user123', 10),
-      rawPassword: 'user123'
+      password: bcrypt.hashSync('user123', 10)
     },
     {
       id: 'usr_staff2',
@@ -282,8 +395,7 @@ async function seedDatabase() {
       status: 'Active',
       createdAt: new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString(),
       lastLogin: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(),
-      password: bcrypt.hashSync('user123', 10),
-      rawPassword: 'user123'
+      password: bcrypt.hashSync('user123', 10)
     },
     {
       id: 'usr_temp',
@@ -336,7 +448,7 @@ async function seedDatabase() {
       const username = isFailed && random() < 0.5 ? 'invalid_user_' + Math.floor(random() * 100) : targetUserObj.username;
 
       loginLogs.push({
-        id: `log_${logIdCounter++}`,
+        id: `seed_log_${d}_${i}_${logIdCounter++}`,
         userId: isFailed || username !== targetUserObj.username ? null : targetUserObj.id,
         username,
         timestamp: logTime,
@@ -840,7 +952,8 @@ app.post('/api/settings', (req, res) => {
 
 // GET users management
 app.get('/api/users', (req, res) => {
-  res.json(users);
+  const safeUsers = users.map(({ password, rawPassword, ...u }: any) => u);
+  res.json(safeUsers);
 });
 
 // POST create/invite user
@@ -867,22 +980,36 @@ app.post('/api/users', async (req, res) => {
     status: 'Active',
     createdAt: new Date().toISOString(),
     lastLogin: null,
-    password: hashedPassword,
-    rawPassword: plainPass
+    password: hashedPassword
   };
 
-  if (adminDb) {
+  let userSaved = false;
+  if (adminDb && !adminDbDisabled) {
     try {
-      await adminDb.collection('users').doc(newUser.id).set(newUser);
-    } catch (err) {
-      console.error('Error saving user to Firestore Admin:', err);
+      await adminDb.collection('system_users').doc(newUser.id).set(newUser);
+      userSaved = true;
+    } catch (err: any) {
+      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
+        adminDbDisabled = true;
+      }
+      console.warn('Error saving user to Firestore Admin:', err?.message || err);
+    }
+  }
+  
+  if (!userSaved && isFirebaseEnabled()) {
+    try {
+      await saveDocument('system_users', newUser.id, newUser);
+    } catch (err: any) {
+      console.warn('Error saving user to Firestore Web SDK:', err?.message || err);
     }
   }
 
   users.push(newUser);
+  users = deduplicateById(users);
   saveDatabase();
   triggerAlert('New Security User Registered', `New user "${username}" was registered under role "${role}".`, 'Low');
-  res.json({ message: 'User registered successfully', user: newUser });
+  const { password: _, rawPassword: __, ...safeUser } = newUser as any;
+  res.json({ message: 'User registered successfully', user: safeUser });
 });
 
 // POST toggle user status
@@ -900,17 +1027,31 @@ app.post('/api/users/toggle-status', async (req, res) => {
 
   user.status = user.status === 'Active' ? 'Deactivated' : 'Active';
 
-  if (adminDb) {
+  let statusUpdated = false;
+  if (adminDb && !adminDbDisabled) {
     try {
-      await adminDb.collection('users').doc(userId).update({ status: user.status });
-    } catch (err) {
-      console.error('Error updating user status in Firestore Admin:', err);
+      await adminDb.collection('system_users').doc(userId).update({ status: user.status });
+      statusUpdated = true;
+    } catch (err: any) {
+      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
+        adminDbDisabled = true;
+      }
+      console.warn('Error updating user status in Firestore Admin:', err?.message || err);
+    }
+  }
+  
+  if (!statusUpdated && isFirebaseEnabled()) {
+    try {
+      await saveDocument('system_users', userId, { status: user.status });
+    } catch (err: any) {
+      console.warn('Error updating user status in Firestore Web SDK:', err?.message || err);
     }
   }
 
   saveDatabase();
   triggerAlert('User Status Altered', `User account status of "${user.username}" was set to "${user.status}".`, 'Low');
-  res.json({ message: 'Status updated successfully', user });
+  const { password: _, rawPassword: __, ...safeUser } = user as any;
+  res.json({ message: 'Status updated successfully', user: safeUser });
 });
 
 // POST to reset/update user password
@@ -925,19 +1066,52 @@ app.post('/api/users/reset-password', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword.trim(), salt);
     user.password = hashedPassword;
-    user.rawPassword = newPassword.trim();
+    delete (user as any).rawPassword;
 
-    if (adminDb) {
+    let firestorePersisted = false;
+    let lastError: any = null;
+
+    if (adminDb && !adminDbDisabled) {
       try {
-        await adminDb.collection('users').doc(userId).update({ password: hashedPassword, rawPassword: newPassword.trim() });
-      } catch (err) {
+        const docRef = adminDb.collection('system_users').doc(userId);
+        const docSnap = await docRef.get();
+        if (docSnap.exists) {
+          await docRef.update({ password: hashedPassword });
+        } else {
+          const { rawPassword, ...cleanUser } = user as any;
+          await docRef.set({ ...cleanUser, password: hashedPassword }, { merge: true });
+        }
+        firestorePersisted = true;
+      } catch (err: any) {
+        lastError = err;
+        if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
+          adminDbDisabled = true;
+        }
         console.error('Error updating password in Firestore Admin:', err);
       }
     }
 
+    if (!firestorePersisted && isFirebaseEnabled()) {
+      try {
+        await saveDocument('system_users', userId, { password: hashedPassword });
+        firestorePersisted = true;
+      } catch (err: any) {
+        lastError = err;
+        console.error('Error updating password in Firestore Web SDK:', err);
+      }
+    }
+
+    if (!firestorePersisted && (adminDb || isFirebaseEnabled())) {
+      return res.status(500).json({ 
+        error: 'Failed to persist password update.',
+        debug: lastError?.message || String(lastError),
+        code: lastError?.code || null
+      });
+    }
+
     saveDatabase();
     triggerAlert('User Password Updated', `Operator passcode for "${user.username}" was updated successfully.`, 'Low');
-    return res.json({ message: `Passcode for "${user.username}" was updated to "${newPassword.trim()}" successfully.` });
+    return res.json({ message: `Passcode for "${user.username}" was updated successfully.` });
   }
 
   triggerAlert('Security Password Reset Triggered', `A password reset ticket was generated for "${user.username}".`, 'Low');
@@ -956,23 +1130,26 @@ app.post('/api/users/delete', async (req, res) => {
     return res.status(400).json({ error: 'Cannot delete the primary administrator account.' });
   }
 
-  users = users.filter(u => u.id !== userId);
+  users = deduplicateById(users.filter(u => u.id !== userId));
   
-  if (adminDb) {
+  if (adminDb && !adminDbDisabled) {
     try {
-      await adminDb.collection('users').doc(userId).delete();
-    } catch (err) {
-      console.error('Error deleting user from Firestore Admin:', err);
+      await adminDb.collection('system_users').doc(userId).delete();
+    } catch (err: any) {
+      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
+        adminDbDisabled = true;
+      }
+      console.warn('Error deleting user from Firestore Admin:', err?.message || err);
     }
   }
 
-  saveDatabase();
-
   if (isFirebaseEnabled()) {
-    deleteDocument('users', userId).catch(err => {
-      console.error(`Error deleting user ${userId} from Firestore:`, err);
+    deleteDocument('system_users', userId).catch(err => {
+      console.warn(`Error deleting user ${userId} from Firestore:`, err?.message || err);
     });
   }
+
+  saveDatabase();
 
   triggerAlert('Operator Identity Deleted', `Operator identity "@${user.username}" was permanently deleted.`, 'Medium');
   res.json({ message: `Operator @${user.username} has been deleted successfully.` });
@@ -1504,11 +1681,28 @@ app.post('/api/auth/login', async (req, res) => {
     failureReason: null
   };
   
-  if (adminDb) {
+  let loginUpdated = false;
+  if (adminDb && !adminDbDisabled) {
     try {
-      await adminDb.collection('users').doc(user.id).update({ lastLogin: user.lastLogin });
-    } catch (err) {
-      console.error('Error updating lastLogin for user in Firestore:', err);
+      await adminDb.collection('system_users').doc(user.id).update({ lastLogin: user.lastLogin });
+      loginUpdated = true;
+    } catch (err: any) {
+      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
+        adminDbDisabled = true;
+      }
+      console.warn('Error updating lastLogin in Firestore Admin:', err?.message || err);
+    }
+  }
+  
+  if (!loginUpdated && isFirebaseEnabled()) {
+    try {
+      await saveDocument('system_users', user.id, { lastLogin: user.lastLogin });
+    } catch (err: any) {
+      if (err?.code === 7 || err?.code === 'permission-denied' || err?.message?.includes('permission') || err?.message?.includes('PERMISSION_DENIED')) {
+        disableFirebaseWeb('system_users lastLogin');
+      } else {
+        console.warn('Error updating lastLogin for user in Firestore Web SDK:', err?.message || err);
+      }
     }
   }
 
@@ -1556,6 +1750,10 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`MUFASA API Security Suite running on http://0.0.0.0:${PORT}`);
+    // Trigger background cloud synchronization without delaying the HTTP listener
+    syncWithCloudDatabase().catch(err => {
+      console.warn('Background cloud database synchronization notice:', err?.message || err);
+    });
   });
 }
 

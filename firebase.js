@@ -1,34 +1,40 @@
-import { initializeApp, cert, getApps, getApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import admin from 'firebase-admin';
+import path from 'path';
+import fs from 'fs';
+
+const serviceAccountPath = '/etc/secrets/firebase-service-account.json';
 
 let app = null;
 let db = null;
+let serviceAccount = null;
 
-try {
-  const credentialsEnv = process.env.FIREBASE_CREDENTIALS;
-  if (credentialsEnv && credentialsEnv.trim() !== '') {
-    if (getApps().length > 0) {
-      app = getApp();
+if (!fs.existsSync(serviceAccountPath)) {
+  console.error('Firebase service account file not found at', serviceAccountPath);
+} else {
+  try {
+    const rawData = fs.readFileSync(serviceAccountPath, 'utf-8');
+    serviceAccount = JSON.parse(rawData);
+    console.log(`[Firebase Admin Startup] Loaded service account for project_id: ${serviceAccount?.project_id || serviceAccount?.projectId}`);
+
+    if (admin.apps && admin.apps.length > 0) {
+      app = admin.apps[0];
     } else {
-      let credential;
-      if (credentialsEnv.trim().startsWith('{')) {
-        const serviceAccount = JSON.parse(credentialsEnv);
-        credential = cert(serviceAccount);
-      } else {
-        credential = cert(credentialsEnv);
-      }
-      app = initializeApp({ credential });
-      console.log('Firebase Admin initialized successfully via FIREBASE_CREDENTIALS.');
+      app = admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
     }
-    if (app) {
-      db = getFirestore(app);
-      db.settings({ ignoreUndefinedProperties: true });
-    }
-  } else {
-    console.log('FIREBASE_CREDENTIALS not set; Firebase Admin SDK disabled in favor of Client Web SDK / local DB.');
+
+    db = admin.firestore();
+    db.settings({ ignoreUndefinedProperties: true });
+    console.log(`Firebase Admin connected to Firestore successfully for project: ${serviceAccount?.project_id || serviceAccount?.projectId}`);
+  } catch (error) {
+    console.error('Firebase Admin initialization error from service account:', error);
   }
-} catch (error) {
-  console.error('Firebase Admin initialization error:', error);
 }
 
-export { app, db };
+const adminDb = db;
+const adminApp = app;
+
+export { admin, app, db, adminDb, adminApp, serviceAccount, serviceAccountPath };
+export default admin;
+

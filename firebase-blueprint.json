@@ -1,0 +1,123 @@
+{
+  "entities": {
+    "SystemUser": {
+      "title": "SystemUser",
+      "description": "System user account within MUFASA API Security Suite",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "lastLogin": { "type": "string" }
+      },
+      "required": ["id", "username", "role", "status"]
+    },
+    "LoginLog": {
+      "title": "LoginLog",
+      "description": "Authentication event log entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "ipAddress": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "status"]
+    },
+    "AttackLog": {
+      "title": "AttackLog",
+      "description": "Security attack detection entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "sourceIP": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "severity": { "type": "string" }
+      },
+      "required": ["id", "type", "sourceIP", "timestamp", "severity"]
+    },
+    "BlockedIP": {
+      "title": "BlockedIP",
+      "description": "Firewall blocked IP address",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ipAddress": { "type": "string" },
+        "reason": { "type": "string" },
+        "blockedAt": { "type": "string" }
+      },
+      "required": ["id", "ipAddress", "blockedAt"]
+    },
+    "Alert": {
+      "title": "Alert",
+      "description": "System security alert notification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "resolved": { "type": "boolean" }
+      },
+      "required": ["id", "title", "severity", "timestamp"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Security audit report document",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "generatedAt": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "name", "generatedAt"]
+    },
+    "SystemSettings": {
+      "title": "SystemSettings",
+      "description": "Global security suite configuration",
+      "type": "object",
+      "properties": {
+        "failedLoginThreshold": { "type": "number" },
+        "ipBlockingDuration": { "type": "number" },
+        "rateLimitThreshold": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "/system_users/{userId}": {
+      "schema": "SystemUser",
+      "description": "System user profiles and credentials"
+    },
+    "/loginLogs/{logId}": {
+      "schema": "LoginLog",
+      "description": "Authentication event history"
+    },
+    "/attackLogs/{logId}": {
+      "schema": "AttackLog",
+      "description": "Detected threat telemetry"
+    },
+    "/blockedIPs/{ipId}": {
+      "schema": "BlockedIP",
+      "description": "Active IP blacklist"
+    },
+    "/alerts/{alertId}": {
+      "schema": "Alert",
+      "description": "Security alerts and notifications"
+    },
+    "/reports/{reportId}": {
+      "schema": "Report",
+      "description": "Generated compliance and audit reports"
+    },
+    "/settings/{settingId}": {
+      "schema": "SystemSettings",
+      "description": "Application settings document"
+    }
+  }
+}

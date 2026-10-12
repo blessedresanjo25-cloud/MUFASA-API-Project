@@ -12,7 +12,6 @@ export interface User {
   createdAt: string;
   lastLogin: string | null;
   password?: string;
-  rawPassword?: string;
 }
 
 export interface LoginLog {
@@ -100,3 +99,69 @@ export interface SecurityStats {
   mostActiveIP: string;
   activeSessionsCount: number;
 }
+
+export interface ConnectedApp {
+  id: string;
+  name: string;
+  appUrl: string;
+  apiKey: string;
+  handshakeToken: string;
+  status: 'Connected' | 'Disconnected';
+  connectedAt: string;
+  lastHeartbeat: string;
+  telemetryEventsCount: number;
+  environment: 'production' | 'staging' | 'development';
+}
+
+export interface HandshakeRequest {
+  appName: string;
+  appUrl: string;
+  apiKey?: string;
+  environment?: 'production' | 'staging' | 'development';
+  sdkVersion?: string;
+}
+
+export interface HandshakeResponse {
+  status: 'CONNECTED' | 'REJECTED';
+  handshakeToken: string;
+  appId: string;
+  connectedAt: string;
+  suiteVersion: string;
+  securityPolicies: {
+    failedLoginThreshold: number;
+    ipBlockingDuration: number;
+    rateLimitThreshold: number;
+    threatLevel: 'Low' | 'Medium' | 'High';
+  };
+  activeBlacklist: string[];
+  message: string;
+}
+
+export interface VerifyDecisionRequest {
+  handshakeToken?: string;
+  apiKey?: string;
+  ipAddress: string;
+  username?: string;
+  userAgent?: string;
+}
+
+export interface VerifyDecisionResponse {
+  decision: 'ALLOW' | 'BLOCK' | 'CHALLENGE';
+  reason?: string;
+  blockedUntil?: string;
+  threatScore?: number;
+}
+
+export interface TelemetryEventRequest {
+  handshakeToken?: string;
+  apiKey?: string;
+  ipAddress: string;
+  username: string;
+  status: 'Success' | 'Failed';
+  failureReason?: string | null;
+  userAgent?: string;
+  device?: string;
+  browser?: string;
+  os?: string;
+}
+

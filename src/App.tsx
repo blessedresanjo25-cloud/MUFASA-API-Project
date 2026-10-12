@@ -97,7 +97,6 @@ export default function App() {
   const [newUserRole, setNewUserRole] = useState<'Administrator' | 'User'>('User');
   const [userFormError, setUserFormError] = useState('');
   const [userFormSuccess, setUserFormSuccess] = useState('');
-  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
   const [resetModalUserId, setResetModalUserId] = useState<string | null>(null);
   const [resetModalPassword, setResetModalPassword] = useState('');
   const [resetModalSuccess, setResetModalSuccess] = useState('');
@@ -127,23 +126,34 @@ export default function App() {
 
   // Fetch all state data helper
   const refreshAllData = async () => {
-    const fetchJsonSafe = async <T,>(url: string): Promise<T | null> => {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) {
-          console.warn(`Fetch to ${url} failed with status ${res.status}`);
+    const fetchJsonSafe = async <T,>(url: string, retries = 2): Promise<T | null> => {
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          const res = await fetch(url, {
+            headers: {
+              'Accept': 'application/json'
+            }
+          });
+          if (!res.ok) {
+            console.warn(`Fetch to ${url} returned status ${res.status}`);
+            return null;
+          }
+          const contentType = res.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            return await res.json() as T;
+          }
+          console.warn(`Fetch to ${url} returned non-JSON content type: ${contentType}`);
+          return null;
+        } catch (err) {
+          if (attempt < retries) {
+            await new Promise(resolve => setTimeout(resolve, 600 * (attempt + 1)));
+            continue;
+          }
+          console.warn(`Fetch to ${url} temporarily unavailable:`, err);
           return null;
         }
-        const contentType = res.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          return await res.json() as T;
-        }
-        console.warn(`Fetch to ${url} returned non-JSON content type: ${contentType}`);
-        return null;
-      } catch (err) {
-        console.error(`Error fetching/parsing ${url}:`, err);
-        return null;
       }
+      return null;
     };
 
     try {
@@ -423,10 +433,6 @@ export default function App() {
       if (res.ok) {
         setResetModalSuccess(d.message);
         setResetModalError('');
-        
-        // Auto-reveal the passcode in the table
-        const targetId = resetModalUserId;
-        setVisiblePasswords(prev => ({ ...prev, [targetId]: true }));
         
         await refreshAllData();
         
@@ -853,21 +859,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Alert bell count */}
-            {unreadAlertsCount > 0 && (
-              <div className="relative">
-                <button 
-                  onClick={handleClearAlerts}
-                  title="Clear All Notifications"
-                  className="bg-slate-850 border border-slate-700/80 hover:bg-slate-800 rounded-xl p-2 flex items-center gap-2 text-xs font-medium text-amber-400 transition duration-150"
-                >
-                  <AlertTriangle className="w-4 h-4 animate-bounce" />
-                  <span>{unreadAlertsCount} Unread Alert{unreadAlertsCount === 1 ? '' : 's'}</span>
-                  <span className="text-[10px] text-slate-400 font-normal underline">(Mark Read)</span>
-                </button>
-              </div>
-            )}
-
             {/* Sync timestamp and refresh button */}
             <div className="flex items-center gap-2.5">
               {lastSynced && (
@@ -910,11 +901,6 @@ export default function App() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-base font-bold text-white tracking-wide">Threat Status: {stats.threatLevel}</span>
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase ${
-                          stats.threatLevel === 'High' ? 'bg-red-500/20 text-red-400' : stats.threatLevel === 'Medium' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-emerald-500/20 text-emerald-400'
-                        }`}>
-                          ● SYSTEM STABILIZED
-                        </span>
                       </div>
                       <p className="text-xs text-slate-300 mt-1 max-w-xl">
                         {stats.threatLevel === 'High' && 'Warning: Multiple severe attack patterns detected over the last 24 hours. Rate limiting and IP bans are being automatically enforced.'}
@@ -1210,8 +1196,8 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/50 text-xs text-slate-300">
-                        {loginLogsList.slice(0, 5).map(l => (
-                          <tr key={l.id} className="hover:bg-slate-850/35 transition">
+                        {loginLogsList.slice(0, 5).map((l, idx) => (
+                          <tr key={l.id ? `${l.id}_${idx}` : `dash_log_${idx}`} className="hover:bg-slate-850/35 transition">
                             <td className="py-2.5 font-medium text-white">{l.username}</td>
                             <td className="py-2.5 font-mono">{l.ipAddress}</td>
                             <td className="py-2.5 text-slate-400">{new Date(l.timestamp).toLocaleTimeString()}</td>
@@ -1241,8 +1227,8 @@ export default function App() {
                     {alertsList.length === 0 ? (
                       <p className="text-xs text-slate-500 text-center py-6">No unread security alerts recorded.</p>
                     ) : (
-                      alertsList.slice(0, 4).map(al => (
-                        <div key={al.id} className={`p-3 rounded-xl border flex gap-2.5 ${
+                      alertsList.slice(0, 4).map((al, idx) => (
+                        <div key={al.id ? `${al.id}_${idx}` : `dash_alert_${idx}`} className={`p-3 rounded-xl border flex gap-2.5 ${
                           al.severity === 'High' ? 'bg-red-500/5 border-red-500/20' : al.severity === 'Medium' ? 'bg-yellow-500/5 border-yellow-500/20' : 'bg-slate-800/50 border-slate-800'
                         }`}>
                           <AlertTriangle className={`w-4 h-4 shrink-0 mt-0.5 ${
@@ -1278,9 +1264,6 @@ export default function App() {
                     Trigger active credential attack scenarios live on the server to test detection alerts, threat score degradation, and automated IP blocking protocols.
                   </p>
                 </div>
-                <span className="text-[10px] text-amber-400 border border-amber-500/30 bg-amber-500/10 py-1 px-2.5 rounded-full font-mono font-semibold self-start md:self-center">
-                  ★ DIPLOMA PRESENTATION MODE ACTIVE
-                </span>
               </div>
 
               {/* Simulator Control Grid */}
@@ -1473,8 +1456,8 @@ export default function App() {
                         <td colSpan={6} className="text-center py-8 text-slate-500 font-mono">No matching login activity logs recorded.</td>
                       </tr>
                     ) : (
-                      filteredLoginLogs.map(l => (
-                        <tr key={l.id} className="hover:bg-slate-850/20 transition">
+                      filteredLoginLogs.map((l, idx) => (
+                        <tr key={l.id ? `${l.id}_${idx}` : `log_row_${idx}`} className="hover:bg-slate-850/20 transition">
                           <td className="py-3.5 font-bold text-white">{l.username}</td>
                           <td className="py-3.5 font-mono">{l.ipAddress}</td>
                           <td className="py-3.5 font-mono text-slate-400">{new Date(l.timestamp).toLocaleString()}</td>
@@ -1579,9 +1562,9 @@ export default function App() {
                 {filteredAttackLogs.length === 0 ? (
                   <p className="text-center py-12 text-slate-500 font-mono text-xs border border-dashed border-slate-800 rounded-xl">No intrusion records match the selected parameter parameters.</p>
                 ) : (
-                  filteredAttackLogs.map(a => (
+                  filteredAttackLogs.map((a, idx) => (
                     <div 
-                      key={a.id} 
+                      key={a.id ? `${a.id}_${idx}` : `att_card_${idx}`} 
                       className={`p-4 rounded-xl border bg-slate-850/40 relative overflow-hidden flex flex-col md:flex-row justify-between gap-4 ${
                         a.severity === 'High' ? 'border-red-500/25 border-l-4 border-l-red-500' : a.severity === 'Medium' ? 'border-yellow-500/25 border-l-4 border-l-yellow-500' : 'border-slate-850 border-l-4 border-l-slate-400'
                       }`}
@@ -1721,10 +1704,10 @@ export default function App() {
                           <td colSpan={6} className="text-center py-8 text-slate-500 font-mono">No host IP has been ban-locked.</td>
                         </tr>
                       ) : (
-                        blockedIPsList.map(b => {
+                        blockedIPsList.map((b, idx) => {
                           const active = isIPCurrentlyBanned(b.blockedUntil, b.status);
                           return (
-                            <tr key={b.id} className="hover:bg-slate-850/20 transition">
+                            <tr key={b.id ? `${b.id}_${idx}` : `blk_row_${idx}`} className="hover:bg-slate-850/20 transition">
                               <td className="py-3.5 font-bold font-mono text-white">{b.ipAddress}</td>
                               <td className="py-3.5 font-mono text-slate-400">{new Date(b.blockedAt).toLocaleDateString()}</td>
                               <td className="py-3.5 font-mono text-slate-400 max-w-[120px] truncate" title={new Date(b.blockedUntil).toLocaleString()}>
@@ -1855,15 +1838,15 @@ export default function App() {
                         <th className="pb-2.5">User Identity</th>
                         <th className="pb-2.5">Email Address</th>
                         <th className="pb-2.5">Role</th>
-                        <th className="pb-2.5">Passcode</th>
+                        <th className="pb-2.5">Passcode Security</th>
                         <th className="pb-2.5">Last Login (UTC)</th>
                         <th className="pb-2.5">Identity Status</th>
                         <th className="pb-2.5 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 text-xs text-slate-300">
-                      {usersList.map(u => (
-                        <tr key={u.id} className="hover:bg-slate-850/20 transition">
+                      {usersList.map((u, idx) => (
+                        <tr key={u.id ? `${u.id}_${idx}` : `usr_row_${idx}`} className="hover:bg-slate-850/20 transition">
                           <td className="py-3.5 font-bold text-white">{u.username}</td>
                           <td className="py-3.5 text-slate-400">{u.email}</td>
                           <td className="py-3.5">
@@ -1874,20 +1857,10 @@ export default function App() {
                             </span>
                           </td>
                           <td className="py-3.5 font-mono text-slate-400">
-                            <div className="flex items-center gap-1.5">
-                              <span className="min-w-[65px] inline-block font-medium">
-                                {visiblePasswords[u.id] 
-                                  ? (u.rawPassword || (u.password && !u.password.startsWith('$2') ? u.password : (u.username === 'admin' ? 'admin123' : u.username === 'analyst_sarah' ? 'sarah123' : u.username === 'john_developer' ? 'user123' : u.username === 'mary_accountant' ? 'user123' : 'user123'))) 
-                                  : '••••••••'}
-                              </span>
-                              <button 
-                                onClick={() => setVisiblePasswords(prev => ({ ...prev, [u.id]: !prev[u.id] }))}
-                                className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-slate-300 transition-colors focus:outline-none"
-                                title={visiblePasswords[u.id] ? "Hide passcode" : "Reveal passcode"}
-                              >
-                                {visiblePasswords[u.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                              </button>
-                            </div>
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800/80 text-emerald-400 border border-slate-700/60">
+                              <Shield className="w-3 h-3 text-emerald-400" />
+                              Encrypted
+                            </span>
                           </td>
                           <td className="py-3.5 font-mono text-slate-400">
                             {u.lastLogin ? new Date(u.lastLogin).toLocaleTimeString() : 'Never logged'}
@@ -1994,8 +1967,8 @@ export default function App() {
                   {reportsList.length === 0 ? (
                     <p className="text-center py-12 text-slate-500 font-mono text-xs">No compiled security audits on system disk.</p>
                   ) : (
-                    reportsList.map(rep => (
-                      <div key={rep.id} className="p-4 rounded-xl border border-slate-800 bg-slate-850/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    reportsList.map((rep, idx) => (
+                      <div key={rep.id ? `${rep.id}_${idx}` : `rep_item_${idx}`} className="p-4 rounded-xl border border-slate-800 bg-slate-850/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                         <div className="flex items-start gap-3">
                           <div className="p-2 bg-emerald-500/15 text-emerald-400 rounded-lg shrink-0">
                             <FileSpreadsheet className="w-5 h-5" />

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ResponsiveContainer, 
@@ -25,6 +25,7 @@ import {
 import { 
   Shield, 
   ShieldAlert, 
+  ShieldCheck,
   Users, 
   Lock, 
   Unlock, 
@@ -59,7 +60,9 @@ import {
   FileSpreadsheet,
   Menu,
   X,
-  Trash2
+  Trash2,
+  Check,
+  CheckCheck
 } from 'lucide-react';
 import { User, LoginLog, AttackLog, BlockedIP, Alert, Report, SystemSettings, SecurityStats } from './types';
 
@@ -80,6 +83,7 @@ export default function App() {
   const [blockedIPsList, setBlockedIPsList] = useState<BlockedIP[]>([]);
   const [usersList, setUsersList] = useState<User[]>([]);
   const [alertsList, setAlertsList] = useState<Alert[]>([]);
+  const [alertTab, setAlertTab] = useState<'unread' | 'all'>('unread');
   const [reportsList, setReportsList] = useState<Report[]>([]);
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
@@ -494,15 +498,57 @@ export default function App() {
 
 
 
+  // Helper for relative timestamps
+  const formatRelativeTime = (dateString: string): string => {
+    try {
+      const now = Date.now();
+      const then = new Date(dateString).getTime();
+      if (isNaN(then)) return 'recently';
+      const diffSec = Math.max(0, Math.floor((now - then) / 1000));
+      if (diffSec < 60) return `${diffSec}s ago`;
+      const diffMin = Math.floor(diffSec / 60);
+      if (diffMin < 60) return `${diffMin}m ago`;
+      const diffHour = Math.floor(diffMin / 60);
+      if (diffHour < 24) return `${diffHour}h ago`;
+      const diffDays = Math.floor(diffHour / 24);
+      if (diffDays < 30) return `${diffDays}d ago`;
+      return `${Math.floor(diffDays / 30)}mo ago`;
+    } catch {
+      return 'recently';
+    }
+  };
+
   // Action: Clear all alerts on server (mark as read)
   const handleClearAlerts = async () => {
+    setAlertsList(prev => prev.map(a => ({ ...a, isRead: true })));
     try {
-      const res = await fetch('/api/alerts/mark-read', { method: 'POST' });
+      const res = await fetch('/api/alerts/mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
       if (res.ok) {
         await refreshAllData();
       }
     } catch (err) {
       console.error('Error clearing alerts:', err);
+    }
+  };
+
+  // Action: Mark single or grouped alerts as read
+  const handleMarkAlertRead = async (ids: string[]) => {
+    setAlertsList(prev => prev.map(a => ids.includes(a.id) ? { ...a, isRead: true } : a));
+    try {
+      const res = await fetch('/api/alerts/mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids })
+      });
+      if (res.ok) {
+        await refreshAllData();
+      }
+    } catch (err) {
+      console.error('Error marking alerts as read:', err);
     }
   };
 
@@ -685,6 +731,100 @@ export default function App() {
   // Format alert center counters
   const unreadAlertsCount = alertsList.filter(a => !a.isRead).length;
 
+  // Group duplicate consecutive alerts into single cards with counter badge
+  const groupedAlerts = useMemo(() => {
+    const result: Array<{
+      id: string;
+      ids: string[];
+      title: string;
+      message: string;
+      severity: string;
+      timestamp: string;
+      isRead: boolean;
+      count: number;
+    }> = [];
+
+    alertsList.forEach((al) => {
+      const prev = result[result.length - 1];
+      if (prev && prev.title === al.title && prev.severity === al.severity) {
+        prev.count += 1;
+        prev.ids.push(al.id);
+        if (!al.isRead) {
+          prev.isRead = false;
+        }
+      } else {
+        result.push({
+          id: al.id,
+          ids: [al.id],
+          title: al.title,
+          message: al.message,
+          severity: al.severity,
+          timestamp: al.timestamp,
+          isRead: !!al.isRead,
+          count: 1,
+        });
+      }
+    });
+
+    return result;
+  }, [alertsList]);
+
+  const displayedAlerts = useMemo(() => {
+    if (alertTab === 'unread') {
+      return groupedAlerts.filter(a => !a.isRead);
+    }
+    return groupedAlerts;
+  }, [groupedAlerts, alertTab]);
+
+  const getSeverityConfig = (severity: string) => {
+    switch (severity) {
+      case 'High':
+      case 'Critical':
+        return {
+          accentBorder: 'border-l-[3px] border-l-red-500',
+          bg: 'bg-slate-850/90 border-red-500/30 shadow-[0_0_12px_-2px_rgba(239,68,68,0.2)]',
+          iconBg: 'bg-red-500/15 border-red-500/25 text-red-400',
+          dotPing: 'bg-red-400',
+          dotBg: 'bg-red-500',
+          Icon: ShieldAlert,
+          name: 'Critical'
+        };
+      case 'Medium':
+      case 'Warning':
+        return {
+          accentBorder: 'border-l-[3px] border-l-amber-500',
+          bg: 'bg-slate-850/90 border-amber-500/30 shadow-[0_0_12px_-2px_rgba(245,158,11,0.2)]',
+          iconBg: 'bg-amber-500/15 border-amber-500/25 text-amber-400',
+          dotPing: 'bg-amber-400',
+          dotBg: 'bg-amber-500',
+          Icon: AlertTriangle,
+          name: 'Warning'
+        };
+      case 'Success':
+        return {
+          accentBorder: 'border-l-[3px] border-l-emerald-500',
+          bg: 'bg-slate-850/90 border-emerald-500/30 shadow-[0_0_12px_-2px_rgba(16,185,129,0.2)]',
+          iconBg: 'bg-emerald-500/15 border-emerald-500/25 text-emerald-400',
+          dotPing: 'bg-emerald-400',
+          dotBg: 'bg-emerald-500',
+          Icon: ShieldCheck,
+          name: 'Success'
+        };
+      case 'Low':
+      case 'Info':
+      default:
+        return {
+          accentBorder: 'border-l-[3px] border-l-blue-500',
+          bg: 'bg-slate-850/90 border-blue-500/30 shadow-[0_0_12px_-2px_rgba(59,130,246,0.2)]',
+          iconBg: 'bg-blue-500/15 border-blue-500/25 text-blue-400',
+          dotPing: 'bg-blue-400',
+          dotBg: 'bg-blue-500',
+          Icon: Info,
+          name: 'Info'
+        };
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 font-sans text-slate-100 flex flex-col md:flex-row">
       {/* 1. SIDEBAR NAVIGATION */}
@@ -752,10 +892,17 @@ export default function App() {
             <button 
               type="button"
               onClick={() => { setActiveTab('attack_logs'); setIsMobileMenuOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'attack_logs' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition duration-150 ${activeTab === 'attack_logs' ? 'bg-slate-800 text-white border-l-4 border-emerald-500 pl-2' : 'text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}
             >
-              <ShieldAlert className="w-4 h-4 shrink-0" />
-              Attack Intrusion Logs
+              <div className="flex items-center gap-3 min-w-0">
+                <ShieldAlert className="w-4 h-4 shrink-0" />
+                <span className="truncate">Attack Intrusion Logs</span>
+              </div>
+              {unreadAlertsCount > 0 && (
+                <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold rounded-full bg-red-500/20 text-red-400 border border-red-500/30 shrink-0">
+                  {unreadAlertsCount}
+                </span>
+              )}
             </button>
 
             {isAdmin && (
@@ -1215,32 +1362,157 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Unread Alerts Feed */}
-                <div className="lg:col-span-1 bg-slate-900 border border-slate-800 rounded-2xl p-5">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                    <h4 className="text-sm font-semibold text-slate-200">Active Security Alerts</h4>
-                    {alertsList.length > 0 && (
-                      <button onClick={handleClearAlerts} className="text-xs text-slate-400 hover:text-white underline">Mark Read</button>
-                    )}
+                {/* Active Security Alerts Panel */}
+                <div className="lg:col-span-1 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col">
+                  {/* Header */}
+                  <div className="pb-3 border-b border-slate-800">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-semibold text-slate-200 font-display">Active Security Alerts</h4>
+                        <span className="px-2 py-0.5 text-[11px] font-mono font-semibold rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                          {unreadAlertsCount} new
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleClearAlerts}
+                        disabled={unreadAlertsCount === 0}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 border border-transparent hover:border-slate-700/60 transition duration-150 disabled:opacity-40 disabled:pointer-events-none"
+                        title="Mark all alerts as read"
+                      >
+                        <CheckCheck className="w-3.5 h-3.5 text-slate-300" />
+                        <span>Mark all read</span>
+                      </button>
+                    </div>
+
+                    {/* Sub-tabs: Unread (n) vs All */}
+                    <div className="flex items-center gap-1.5 mt-3 pt-2.5 border-t border-slate-800/60">
+                      <button
+                        type="button"
+                        onClick={() => setAlertTab('unread')}
+                        className={`px-2.5 py-1 text-xs font-medium rounded-lg transition duration-150 ${
+                          alertTab === 'unread'
+                            ? 'bg-slate-800 text-emerald-400 border border-slate-700/80 shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850'
+                        }`}
+                      >
+                        Unread ({unreadAlertsCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAlertTab('all')}
+                        className={`px-2.5 py-1 text-xs font-medium rounded-lg transition duration-150 ${
+                          alertTab === 'all'
+                            ? 'bg-slate-800 text-slate-200 border border-slate-700/80 shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850'
+                        }`}
+                      >
+                        All ({groupedAlerts.length})
+                      </button>
+                    </div>
                   </div>
-                  <div className="mt-4 space-y-3">
-                    {alertsList.length === 0 ? (
-                      <p className="text-xs text-slate-500 text-center py-6">No unread security alerts recorded.</p>
-                    ) : (
-                      alertsList.slice(0, 4).map((al, idx) => (
-                        <div key={al.id ? `${al.id}_${idx}` : `dash_alert_${idx}`} className={`p-3 rounded-xl border flex gap-2.5 ${
-                          al.severity === 'High' ? 'bg-red-500/5 border-red-500/20' : al.severity === 'Medium' ? 'bg-yellow-500/5 border-yellow-500/20' : 'bg-slate-800/50 border-slate-800'
-                        }`}>
-                          <AlertTriangle className={`w-4 h-4 shrink-0 mt-0.5 ${
-                            al.severity === 'High' ? 'text-red-400' : al.severity === 'Medium' ? 'text-yellow-400' : 'text-slate-400'
-                          }`} />
-                          <div>
-                            <span className="text-xs font-semibold text-slate-200 block leading-tight">{al.title}</span>
-                            <span className="text-[10px] text-slate-400 block leading-normal mt-0.5">{al.message}</span>
-                            <span className="text-[9px] text-slate-500 font-mono block mt-1">{new Date(al.timestamp).toLocaleTimeString()}</span>
-                          </div>
+
+                  {/* Scrollable Alerts List */}
+                  <div className="mt-3 space-y-2 max-h-[380px] overflow-y-auto pr-1">
+                    {displayedAlerts.length === 0 ? (
+                      <div className="py-10 flex flex-col items-center justify-center text-center">
+                        <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-2.5">
+                          <ShieldCheck className="w-5 h-5" />
                         </div>
-                      ))
+                        <p className="text-xs font-medium text-slate-300">You're all caught up</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5 font-mono">
+                          {alertTab === 'unread' ? 'No unread security alerts pending review' : 'No alerts recorded'}
+                        </p>
+                      </div>
+                    ) : (
+                      displayedAlerts.map((al) => {
+                        const isUnread = !al.isRead;
+                        const config = getSeverityConfig(al.severity);
+
+                        if (isUnread) {
+                          return (
+                            <div
+                              key={al.id}
+                              onClick={() => handleMarkAlertRead(al.ids)}
+                              className={`group relative p-3 rounded-xl border flex items-start gap-3 transition-all duration-200 cursor-pointer ${config.accentBorder} ${config.bg}`}
+                              title="Click to mark as read"
+                            >
+                              {/* Severity Icon in tinted rounded square */}
+                              <div className={`p-2 rounded-lg border shrink-0 mt-0.5 ${config.iconBg}`}>
+                                <config.Icon className="w-4 h-4" />
+                              </div>
+
+                              <div className="flex-1 min-w-0 pr-6">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-bold text-white leading-tight">
+                                    {al.title}
+                                  </span>
+                                  {al.count > 1 && (
+                                    <span className="px-1.5 py-0.5 text-[9px] font-mono font-bold rounded-md bg-slate-800 text-slate-200 border border-slate-700">
+                                      ×{al.count}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] font-normal text-slate-300 mt-1 leading-relaxed">
+                                  {al.message}
+                                </p>
+                                <div className="mt-2 flex items-center justify-between text-[10px] font-mono text-slate-400">
+                                  <span title={new Date(al.timestamp).toLocaleString()}>
+                                    {formatRelativeTime(al.timestamp)}
+                                  </span>
+                                  <span className="text-[9px] uppercase tracking-wider text-slate-500">
+                                    {config.name}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Top right pulsing dot and hover mark-read button */}
+                              <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMarkAlertRead(al.ids);
+                                  }}
+                                  title="Mark as read"
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 border border-slate-700/80 shadow-sm"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <span className="relative flex h-2 w-2 shrink-0 my-1">
+                                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${config.dotPing}`} />
+                                  <span className={`relative inline-flex rounded-full h-2 w-2 ${config.dotBg}`} />
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // Read alert: collapsed compact single-line row, dimmed to ~60%
+                        return (
+                          <div
+                            key={al.id}
+                            className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-slate-900/50 border border-slate-800/60 opacity-60 hover:opacity-90 transition-all duration-200"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="p-1 rounded-md bg-slate-800/80 text-slate-400 shrink-0">
+                                <config.Icon className="w-3.5 h-3.5" />
+                              </div>
+                              <span className="text-xs font-normal text-slate-300 truncate" title={al.message}>
+                                {al.title}
+                              </span>
+                              {al.count > 1 && (
+                                <span className="px-1.5 py-0.2 text-[9px] font-mono font-normal rounded bg-slate-800 text-slate-400 border border-slate-700 shrink-0">
+                                  ×{al.count}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] font-mono text-slate-500 shrink-0 whitespace-nowrap" title={new Date(al.timestamp).toLocaleString()}>
+                              {formatRelativeTime(al.timestamp)}
+                            </span>
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 </div>

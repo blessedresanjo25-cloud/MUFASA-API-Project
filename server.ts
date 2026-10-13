@@ -1162,9 +1162,19 @@ app.get('/api/alerts', (req, res) => {
 
 // POST mark alerts read
 app.post('/api/alerts/mark-read', (req, res) => {
-  alerts.forEach(a => a.isRead = true);
+  const { id, ids } = req.body || {};
+  if (Array.isArray(ids) && ids.length > 0) {
+    alerts.forEach(a => {
+      if (ids.includes(a.id)) a.isRead = true;
+    });
+  } else if (id) {
+    const target = alerts.find(a => a.id === id);
+    if (target) target.isRead = true;
+  } else {
+    alerts.forEach(a => a.isRead = true);
+  }
   saveDatabase();
-  res.json({ message: 'All alerts marked as read' });
+  res.json({ message: 'Alerts updated', alerts });
 });
 
 // ==========================================

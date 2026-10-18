@@ -7,3 +7,80 @@
   --font-mono: "JetBrains Mono", monospace;
 }
 
+.light-theme {
+  color-scheme: light;
+  color: #0f172a;
+}
+
+.light-theme[class*="bg-slate-950"] {
+  background-color: #f8fafc !important;
+}
+
+.light-theme [class*="bg-slate-950"] {
+  background-color: #f8fafc !important;
+}
+
+.light-theme [class*="bg-slate-900"] {
+  background-color: #fff !important;
+}
+
+.light-theme [class*="bg-slate-850"],
+.light-theme [class*="bg-slate-905"] {
+  background-color: #f1f5f9 !important;
+}
+
+.light-theme [class*="bg-slate-805"] {
+  background-color: #fff !important;
+}
+
+.light-theme [class*="bg-slate-800"] {
+  background-color: #e2e8f0 !important;
+}
+
+.light-theme [class*="hover:bg-slate-850"]:hover {
+  background-color: #e2e8f0 !important;
+}
+
+.light-theme [class*="hover:bg-slate-800"]:hover {
+  background-color: #cbd5e1 !important;
+}
+
+.light-theme[class~="text-slate-100"],
+.light-theme [class~="text-slate-100"],
+.light-theme [class~="text-slate-200"],
+.light-theme [class~="text-white"]:not([class*="bg-gradient"]):not([class*="bg-emerald-"]):not([class*="bg-blue-"]):not([class*="bg-red-"]):not([class*="bg-rose-"]) {
+  color: #0f172a !important;
+}
+
+.light-theme [class~="text-slate-300"],
+.light-theme [class~="text-slate-400"] {
+  color: #475569 !important;
+}
+
+.light-theme [class~="text-slate-500"],
+.light-theme [class~="text-slate-600"] {
+  color: #64748b !important;
+}
+
+.light-theme [class*="placeholder:text-slate-600"]::placeholder {
+  color: #94a3b8 !important;
+}
+
+.light-theme [class*="border-slate-"] {
+  border-color: #cbd5e1 !important;
+}
+
+.light-theme [class*="hover:text-white"]:hover {
+  color: #0f172a !important;
+}
+
+.light-theme [class*="bg-gradient"] [class~="text-white"] {
+  color: #fff !important;
+}
+
+.light-theme [class*="bg-emerald-"] [class~="text-white"],
+.light-theme [class*="bg-blue-"] [class~="text-white"],
+.light-theme [class*="bg-red-"] [class~="text-white"],
+.light-theme [class*="bg-rose-"] [class~="text-white"] {
+  color: #fff !important;
+}

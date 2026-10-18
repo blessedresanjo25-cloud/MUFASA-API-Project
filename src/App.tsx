@@ -584,10 +584,109 @@ export default function App() {
     return new Date(blockedUntilStr).getTime() > Date.now();
   };
 
-  // Return Login layout if not authenticated
+  // Determine administrator access flag
+  const isAdmin = currentUser ? currentUser.role === 'Administrator' : false;
+
+  // Format alert center counters
+  const unreadAlertsCount = alertsList.filter(a => !a.isRead).length;
+
+  // Group duplicate consecutive alerts into single cards with counter badge
+  const groupedAlerts = useMemo(() => {
+    const result: Array<{
+      id: string;
+      ids: string[];
+      title: string;
+      message: string;
+      severity: string;
+      timestamp: string;
+      isRead: boolean;
+      count: number;
+    }> = [];
+
+    alertsList.forEach((al) => {
+      const prev = result[result.length - 1];
+      if (prev && prev.title === al.title && prev.severity === al.severity) {
+        prev.count += 1;
+        prev.ids.push(al.id);
+        if (!al.isRead) {
+          prev.isRead = false;
+        }
+      } else {
+        result.push({
+          id: al.id,
+          ids: [al.id],
+          title: al.title,
+          message: al.message,
+          severity: al.severity,
+          timestamp: al.timestamp,
+          isRead: !!al.isRead,
+          count: 1,
+        });
+      }
+    });
+
+    return result;
+  }, [alertsList]);
+
+  const displayedAlerts = useMemo(() => {
+    if (alertTab === 'unread') {
+      return groupedAlerts.filter(a => !a.isRead);
+    }
+    return groupedAlerts;
+  }, [groupedAlerts, alertTab]);
+
+  const getSeverityConfig = (severity: string) => {
+    switch (severity) {
+      case 'High':
+      case 'Critical':
+        return {
+          accentBorder: 'border-l-[3px] border-l-red-500',
+          bg: 'bg-slate-850/90 border-red-500/30 shadow-[0_0_12px_-2px_rgba(239,68,68,0.2)]',
+          iconBg: 'bg-red-500/15 border-red-500/25 text-red-400',
+          dotPing: 'bg-red-400',
+          dotBg: 'bg-red-500',
+          Icon: ShieldAlert,
+          name: 'Critical'
+        };
+      case 'Medium':
+      case 'Warning':
+        return {
+          accentBorder: 'border-l-[3px] border-l-amber-500',
+          bg: 'bg-slate-850/90 border-amber-500/30 shadow-[0_0_12px_-2px_rgba(245,158,11,0.2)]',
+          iconBg: 'bg-amber-500/15 border-amber-500/25 text-amber-400',
+          dotPing: 'bg-amber-400',
+          dotBg: 'bg-amber-500',
+          Icon: AlertTriangle,
+          name: 'Warning'
+        };
+      case 'Success':
+        return {
+          accentBorder: 'border-l-[3px] border-l-emerald-500',
+          bg: 'bg-slate-850/90 border-emerald-500/30 shadow-[0_0_12px_-2px_rgba(16,185,129,0.2)]',
+          iconBg: 'bg-emerald-500/15 border-emerald-500/25 text-emerald-400',
+          dotPing: 'bg-emerald-400',
+          dotBg: 'bg-emerald-500',
+          Icon: ShieldCheck,
+          name: 'Success'
+        };
+      case 'Low':
+      case 'Info':
+      default:
+        return {
+          accentBorder: 'border-l-[3px] border-l-blue-500',
+          bg: 'bg-slate-850/90 border-blue-500/30 shadow-[0_0_12px_-2px_rgba(59,130,246,0.2)]',
+          iconBg: 'bg-blue-500/15 border-blue-500/25 text-blue-400',
+          dotPing: 'bg-blue-400',
+          dotBg: 'bg-blue-500',
+          Icon: Info,
+          name: 'Info'
+        };
+    }
+  };
+
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4 py-12 font-sans relative overflow-hidden">
+      <div className="light-theme min-h-screen bg-slate-950 flex items-center justify-center px-4 py-12 font-sans relative overflow-hidden">
         {/* Animated Background Accents */}
         <motion.div 
           animate={{
@@ -725,108 +824,8 @@ export default function App() {
     );
   }
 
-  // Determine administrator access flag
-  const isAdmin = currentUser.role === 'Administrator';
-
-  // Format alert center counters
-  const unreadAlertsCount = alertsList.filter(a => !a.isRead).length;
-
-  // Group duplicate consecutive alerts into single cards with counter badge
-  const groupedAlerts = useMemo(() => {
-    const result: Array<{
-      id: string;
-      ids: string[];
-      title: string;
-      message: string;
-      severity: string;
-      timestamp: string;
-      isRead: boolean;
-      count: number;
-    }> = [];
-
-    alertsList.forEach((al) => {
-      const prev = result[result.length - 1];
-      if (prev && prev.title === al.title && prev.severity === al.severity) {
-        prev.count += 1;
-        prev.ids.push(al.id);
-        if (!al.isRead) {
-          prev.isRead = false;
-        }
-      } else {
-        result.push({
-          id: al.id,
-          ids: [al.id],
-          title: al.title,
-          message: al.message,
-          severity: al.severity,
-          timestamp: al.timestamp,
-          isRead: !!al.isRead,
-          count: 1,
-        });
-      }
-    });
-
-    return result;
-  }, [alertsList]);
-
-  const displayedAlerts = useMemo(() => {
-    if (alertTab === 'unread') {
-      return groupedAlerts.filter(a => !a.isRead);
-    }
-    return groupedAlerts;
-  }, [groupedAlerts, alertTab]);
-
-  const getSeverityConfig = (severity: string) => {
-    switch (severity) {
-      case 'High':
-      case 'Critical':
-        return {
-          accentBorder: 'border-l-[3px] border-l-red-500',
-          bg: 'bg-slate-850/90 border-red-500/30 shadow-[0_0_12px_-2px_rgba(239,68,68,0.2)]',
-          iconBg: 'bg-red-500/15 border-red-500/25 text-red-400',
-          dotPing: 'bg-red-400',
-          dotBg: 'bg-red-500',
-          Icon: ShieldAlert,
-          name: 'Critical'
-        };
-      case 'Medium':
-      case 'Warning':
-        return {
-          accentBorder: 'border-l-[3px] border-l-amber-500',
-          bg: 'bg-slate-850/90 border-amber-500/30 shadow-[0_0_12px_-2px_rgba(245,158,11,0.2)]',
-          iconBg: 'bg-amber-500/15 border-amber-500/25 text-amber-400',
-          dotPing: 'bg-amber-400',
-          dotBg: 'bg-amber-500',
-          Icon: AlertTriangle,
-          name: 'Warning'
-        };
-      case 'Success':
-        return {
-          accentBorder: 'border-l-[3px] border-l-emerald-500',
-          bg: 'bg-slate-850/90 border-emerald-500/30 shadow-[0_0_12px_-2px_rgba(16,185,129,0.2)]',
-          iconBg: 'bg-emerald-500/15 border-emerald-500/25 text-emerald-400',
-          dotPing: 'bg-emerald-400',
-          dotBg: 'bg-emerald-500',
-          Icon: ShieldCheck,
-          name: 'Success'
-        };
-      case 'Low':
-      case 'Info':
-      default:
-        return {
-          accentBorder: 'border-l-[3px] border-l-blue-500',
-          bg: 'bg-slate-850/90 border-blue-500/30 shadow-[0_0_12px_-2px_rgba(59,130,246,0.2)]',
-          iconBg: 'bg-blue-500/15 border-blue-500/25 text-blue-400',
-          dotPing: 'bg-blue-400',
-          dotBg: 'bg-blue-500',
-          Icon: Info,
-          name: 'Info'
-        };
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-slate-950 font-sans text-slate-100 flex flex-col md:flex-row">
+    <div className="light-theme min-h-screen bg-slate-950 font-sans text-slate-100 flex flex-col md:flex-row">
       {/* 1. SIDEBAR NAVIGATION */}
       <aside className="sticky top-0 z-30 w-full md:sticky md:top-0 md:h-screen md:w-64 bg-slate-900 border-b md:border-b-0 md:border-r border-slate-800 shrink-0 flex flex-col">
         {/* Core Suite Header - ALWAYS STAGNANT (Sticky top on mobile/desktop) */}
